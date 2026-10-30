@@ -17,8 +17,11 @@
 #ifndef ROOMS_ROOMSPANEL_H
 #define ROOMS_ROOMSPANEL_H
 
+#include <QColor>
 #include <QWidget>
 #include "roomclient.h"
+
+#include <QElapsedTimer>
 
 class QCheckBox;
 class QGroupBox;
@@ -28,6 +31,7 @@ class QListWidget;
 class QListWidgetItem;
 class QPushButton;
 class QSpinBox;
+class QTimer;
 
 // RoomsPanel is the "Rooms" dock widget content: create/join a room, see
 // the room code and the member list, and (for the admin) change the room
@@ -49,6 +53,16 @@ public:
                     const QString &selfId);
     void setSettings(const RoomSettings &settings);
     void showMessage(const QString &message);
+    // Rooms v2 chat
+    void setChatLog(const QVector<RoomChatMessage> &log,
+                    const QString &selfId);
+    void appendChatMessage(const QString &fromId, const QString &fromName,
+                           const QString &text, qint64 ts);
+    void showPeerTyping(const QString &fromName);
+    QString selectedMemberId() const;
+
+    // Stable per-member color (same palette idea as the mobile app).
+    static QColor memberColor(const QString &memberId);
 
 signals:
     void createRequested(const QString &name);
@@ -57,6 +71,9 @@ signals:
     void openMemberRequested(const QString &memberId);
     void kickRequested(const QString &memberId);
     void applySettingsRequested(const RoomSettings &settings);
+    void chatSendRequested(const QString &text);
+    void chatTyping();
+    void saveCodeRequested();
 
 private slots:
     void onCreateClicked();
@@ -64,6 +81,8 @@ private slots:
     void onMemberDoubleClicked(QListWidgetItem *item);
     void onMemberContextMenu(const QPoint &pos);
     void onApplySettingsClicked();
+    void onChatSendClicked();
+    void onChatTextEdited(const QString &text);
 
 private:
     QString memberIdOf(QListWidgetItem *item) const;
@@ -73,12 +92,22 @@ private:
     QLineEdit *mCodeEdit;
     QPushButton *mJoinButton;
     QLabel *mCodeLabel;
+    QLabel *mProjectLabel;
     QLabel *mStatusLabel;
     QListWidget *mMembersList;
+    QPushButton *mSaveCodeButton;
+    QGroupBox *mChatBox;
+    QListWidget *mChatList;
+    QLabel *mTypingLabel;
+    QLineEdit *mChatEdit;
+    QPushButton *mChatSendButton;
     QGroupBox *mSettingsBox;
+    QLineEdit *mProjectEdit;
     QSpinBox *mMaxMembersSpin;
     QCheckBox *mPeerEditCheck;
     QPushButton *mLeaveButton;
+    QTimer *mTypingClearTimer;
+    QElapsedTimer mTypingSendTimer;
 
     bool mInRoom = false;
     bool mIsAdmin = false;

@@ -29,6 +29,7 @@
 #include <QDir>
 #include <QDockWidget>
 #include <QFile>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QMenu>
 #include <QMenuBar>
@@ -117,6 +118,12 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomKickRequested);
     connect(mRoomsPanel, &RoomsPanel::applySettingsRequested,
             this, &MainWindow::onRoomApplySettingsRequested);
+    connect(mRoomsPanel, &RoomsPanel::chatSendRequested,
+            this, &MainWindow::onRoomChatSendRequested);
+    connect(mRoomsPanel, &RoomsPanel::chatTyping,
+            this, &MainWindow::onRoomChatTyping);
+    connect(mRoomsPanel, &RoomsPanel::saveCodeRequested,
+            this, &MainWindow::onRoomSaveCodeRequested);
 
     connect(mRoomClient, &RoomClient::roomJoined,
             this, &MainWindow::onRoomJoined);
@@ -130,6 +137,10 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomDocDenied);
     connect(mRoomClient, &RoomClient::settingsChanged,
             this, &MainWindow::onRoomSettingsChanged);
+    connect(mRoomClient, &RoomClient::chatReceived,
+            this, &MainWindow::onRoomChatReceived);
+    connect(mRoomClient, &RoomClient::memberTyping,
+            this, &MainWindow::onRoomMemberTyping);
     connect(mRoomClient, &RoomClient::kicked,
             this, &MainWindow::onRoomKicked);
     connect(mRoomClient, &RoomClient::roomClosed,
@@ -428,17 +439,116 @@ void MainWindow::onRoomApplySettingsRequested(const RoomSettings &settings)
 void MainWindow::onRoomJoined(const QString &selfId, const QString &role,
                               const QString &code,
                               const RoomSettings &settings,
-                              const QVector<RoomMemberInfo> &members)
+                              const QVector<RoomMemberInfo> &members,
+                              const QVector<RoomChatMessage> &chatLog)
 {
     Q_UNUSED(selfId);
     mRoomMembers = members;
     mRoomSettings = settings;
     mRoomsPanel->setInRoom(code, role, settings);
     mRoomsPanel->setMembers(members, mRoomClient->selfId());
+    mRoomsPanel->setChatLog(chatLog, mRoomClient->selfId());
     applyRoomEditability();
     statusBar()->showMessage(
                 tr("Joined room %1. Share the code with your friends.")
                 .arg(code), 6000);
+}
+
+// ---------------------------------------------------------------------------
+// Rooms v2: chat, typing, save code
+// ---------------------------------------------------------------------------
+
+void MainWindow::onRoomChatSendRequested(const QString &text)
+{
+    if (mRoomClient)
+        mRoomClient->sendChat(text);
+}
+
+void MainWindow::onRoomChatTyping()
+{
+    if (mRoomClient)
+        mRoomClient->sendTyping();
+}
+
+void MainWindow::onRoomChatReceived(const QString &fromId,
+                                    const QString &fromName,
+                                    const QString &text, qint64 ts)
+{
+    if (mRoomsPanel)
+        mRoomsPanel->appendChatMessage(fromId, fromName, text, ts);
+}
+
+void MainWindow::onRoomMemberTyping(const QString &fromId,
+                                    const QString &fromName)
+{
+    Q_UNUSED(fromId);
+    if (mRoomsPanel)
+        mRoomsPanel->showPeerTyping(fromName);
+}
+
+void MainWindow::onRoomSaveCodeRequested()
+{
+    if (!mRoomClient || !mRoomClient->isInRoom())
+        return;
+    // Whose code? The member whose editor is on screen first, then the
+    // member selected in the panel list, then our own document.
+    QString targetId;
+    QString code;
+    Editor *active = mEditorManager->getEditor();
+    if (active) {
+        for (auto it = mMemberEditors.constBegin();
+             it != mMemberEditors.constEnd(); ++it) {
+            if (it.value().data() == active) {
+                targetId = it.key();
+                code = active->text();
+                break;
+            }
+        }
+        if (targetId.isEmpty() && active == mMyRoomEditor.data()) {
+            targetId = mRoomClient->selfId();
+            code = active->text();
+        }
+    }
+    if (targetId.isEmpty()) {
+        QString selected = mRoomsPanel->selectedMemberId();
+        if (!selected.isEmpty())
+            targetId = selected;
+    }
+    if (targetId.isEmpty())
+        targetId = mRoomClient->selfId();
+    const RoomMemberInfo *member = roomMember(targetId);
+    if (!member)
+        return;
+    if (code.isEmpty()) {
+        if (Editor *editor = roomEditorForTarget(targetId))
+            code = editor->text();
+        else
+            code = member->doc.code;
+    }
+    QString language = member->doc.language;
+    QString defaultName = sanitizeForFilename(member->name) + "."
+            + extensionForLanguage(language);
+    QString filter = language == "python"
+            ? tr("Python files (*.py);;All files (*)")
+            : language == "c"
+                  ? tr("C files (*.c);;All files (*)")
+                  : tr("C++ files (*.cpp);;All files (*)");
+    QString path = QFileDialog::getSaveFileName(
+                this, tr("Save %1's code").arg(member->name),
+                defaultName, filter);
+    if (path.isEmpty())
+        return;
+    QFile file{path};
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        statusBar()->showMessage(
+                    tr("Could not save the code to %1.").arg(path), 6000);
+        return;
+    }
+    file.write(code.toUtf8());
+    file.close();
+    statusBar()->showMessage(
+                tr("Saved %1's code to %2.")
+                    .arg(member->name, QFileInfo(path).fileName()), 5000);
 }
 
 void MainWindow::onRoomMemberJoined(const RoomMemberInfo &member)

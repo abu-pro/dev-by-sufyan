@@ -17,15 +17,44 @@
 #include "roomspanel.h"
 
 #include <QCheckBox>
+#include <QDateTime>
+#include <QElapsedTimer>
 #include <QGroupBox>
 #include <QHBoxLayout>
+#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
+#include <QPainter>
+#include <QPixmap>
 #include <QPushButton>
 #include <QSpinBox>
+#include <QTimer>
 #include <QVBoxLayout>
+
+namespace {
+
+// Fixed 8-color palette; a member's color is a stable hash of their id,
+// so the same person keeps the same color on every client.
+const char *MEMBER_COLORS[] = {
+    "#e02323", "#1e88e5", "#43a047", "#fb8c00",
+    "#8e24aa", "#00acc1", "#6d4c41", "#3949ab",
+};
+
+QIcon dotIcon(const QColor &color)
+{
+    QPixmap pixmap{14, 14};
+    pixmap.fill(Qt::transparent);
+    QPainter painter{&pixmap};
+    painter.setRenderHint(QPainter::Antialiasing);
+    painter.setBrush(color);
+    painter.setPen(Qt::NoPen);
+    painter.drawEllipse(2, 2, 10, 10);
+    return QIcon{pixmap};
+}
+
+} // namespace
 
 RoomsPanel::RoomsPanel(QWidget *parent) :
     QWidget{parent}
@@ -60,14 +89,56 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     mCodeLabel->setVisible(false);
     layout->addWidget(mCodeLabel);
 
+    mProjectLabel = new QLabel{this};
+    mProjectLabel->setWordWrap(true);
+    mProjectLabel->setStyleSheet(
+        "background:#fdecea; border:1px solid #f0b8b2; border-radius:4px;"
+        " padding:4px 6px; font-weight:bold; color:#8f1f14;");
+    mProjectLabel->setVisible(false);
+    layout->addWidget(mProjectLabel);
+
     auto *membersLabel = new QLabel{tr("Members"), this};
     layout->addWidget(membersLabel);
     mMembersList = new QListWidget{this};
     mMembersList->setContextMenuPolicy(Qt::CustomContextMenu);
     layout->addWidget(mMembersList);
 
+    mSaveCodeButton = new QPushButton{tr("Save Code…"), this};
+    mSaveCodeButton->setToolTip(
+        tr("Save the code you are viewing to a file on this computer"));
+    mSaveCodeButton->setVisible(false);
+    layout->addWidget(mSaveCodeButton);
+
+    // Rooms v2 chat: a simple messaging area under the member list.
+    mChatBox = new QGroupBox{tr("Chat"), this};
+    auto *chatLayout = new QVBoxLayout{mChatBox};
+    mChatList = new QListWidget{mChatBox};
+    mChatList->setWordWrap(true);
+    mChatList->setSelectionMode(QAbstractItemView::NoSelection);
+    chatLayout->addWidget(mChatList);
+    mTypingLabel = new QLabel{mChatBox};
+    mTypingLabel->setStyleSheet("color:#666; font-style:italic;");
+    chatLayout->addWidget(mTypingLabel);
+    auto *chatRow = new QHBoxLayout;
+    mChatEdit = new QLineEdit{mChatBox};
+    mChatEdit->setPlaceholderText(tr("Type a message…"));
+    mChatEdit->setMaxLength(500);
+    chatRow->addWidget(mChatEdit);
+    mChatSendButton = new QPushButton{tr("Send"), mChatBox};
+    mChatSendButton->setStyleSheet(
+        "background:#e02323; color:white; font-weight:bold; padding:4px 14px;");
+    chatRow->addWidget(mChatSendButton);
+    chatLayout->addLayout(chatRow);
+    mChatBox->setVisible(false);
+    layout->addWidget(mChatBox);
+
     mSettingsBox = new QGroupBox{tr("Admin settings"), this};
     auto *settingsLayout = new QVBoxLayout{mSettingsBox};
+    settingsLayout->addWidget(new QLabel{tr("Project name"), mSettingsBox});
+    mProjectEdit = new QLineEdit{mSettingsBox};
+    mProjectEdit->setPlaceholderText(tr("e.g. Rocket Simulator"));
+    mProjectEdit->setMaxLength(60);
+    settingsLayout->addWidget(mProjectEdit);
     auto *maxLayout = new QHBoxLayout;
     maxLayout->addWidget(new QLabel{tr("Max members"), mSettingsBox});
     mMaxMembersSpin = new QSpinBox{mSettingsBox};
@@ -102,6 +173,20 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
             this, &RoomsPanel::onMemberDoubleClicked);
     connect(mMembersList, &QWidget::customContextMenuRequested,
             this, &RoomsPanel::onMemberContextMenu);
+    connect(mSaveCodeButton, &QPushButton::clicked,
+            this, &RoomsPanel::saveCodeRequested);
+    connect(mChatSendButton, &QPushButton::clicked,
+            this, &RoomsPanel::onChatSendClicked);
+    connect(mChatEdit, &QLineEdit::returnPressed,
+            this, &RoomsPanel::onChatSendClicked);
+    connect(mChatEdit, &QLineEdit::textEdited,
+            this, &RoomsPanel::onChatTextEdited);
+
+    mTypingClearTimer = new QTimer{this};
+    mTypingClearTimer->setSingleShot(true);
+    connect(mTypingClearTimer, &QTimer::timeout, this, [this]() {
+        mTypingLabel->clear();
+    });
 }
 
 QString RoomsPanel::userName() const
@@ -131,6 +216,10 @@ void RoomsPanel::setInRoom(const QString &code, const QString &role,
     mCodeEdit->setVisible(false);
     mJoinButton->setVisible(false);
     mLeaveButton->setVisible(true);
+    mSaveCodeButton->setVisible(true);
+    mChatBox->setVisible(true);
+    mChatList->clear();
+    mTypingLabel->clear();
     mSettingsBox->setVisible(mIsAdmin);
     setSettings(settings);
 }
@@ -141,6 +230,12 @@ void RoomsPanel::setNotInRoom(const QString &message)
     mIsAdmin = false;
     mSelfId.clear();
     mMembersList->clear();
+    mChatList->clear();
+    mChatEdit->clear();
+    mTypingLabel->clear();
+    mProjectLabel->setVisible(false);
+    mSaveCodeButton->setVisible(false);
+    mChatBox->setVisible(false);
     mCodeLabel->setVisible(false);
     mStatusLabel->setText(message.isEmpty() ? tr("Not in a room") : message);
     mNameEdit->setEnabled(true);
@@ -166,9 +261,77 @@ void RoomsPanel::setMembers(const QVector<RoomMemberInfo> &members,
             text += tr(" (you)");
         auto *item = new QListWidgetItem{text, mMembersList};
         item->setData(Qt::UserRole, member.id);
+        item->setIcon(dotIcon(memberColor(member.id)));
         item->setToolTip(member.role == "admin"
                              ? tr("Admin — double-click to view the code")
                              : tr("Double-click to view the code"));
+    }
+}
+
+QColor RoomsPanel::memberColor(const QString &memberId)
+{
+    uint hash = 0;
+    for (QChar ch : memberId)
+        hash = hash * 31 + ch.unicode();
+    return QColor{QString::fromLatin1(
+        MEMBER_COLORS[hash % (sizeof(MEMBER_COLORS) / sizeof(MEMBER_COLORS[0]))])};
+}
+
+QString RoomsPanel::selectedMemberId() const
+{
+    return memberIdOf(mMembersList->currentItem());
+}
+
+void RoomsPanel::setChatLog(const QVector<RoomChatMessage> &log,
+                            const QString &selfId)
+{
+    mChatList->clear();
+    for (const RoomChatMessage &message : log)
+        appendChatMessage(message.fromId, message.fromName, message.text,
+                          message.ts);
+    Q_UNUSED(selfId);
+}
+
+void RoomsPanel::appendChatMessage(const QString &fromId,
+                                   const QString &fromName,
+                                   const QString &text, qint64 ts)
+{
+    QString who = (fromId == mSelfId) ? tr("You") : fromName;
+    auto *item = new QListWidgetItem{tr("%1: %2").arg(who, text), mChatList};
+    item->setForeground(memberColor(fromId));
+    if (ts > 0)
+        item->setToolTip(QDateTime::fromMSecsSinceEpoch(ts)
+                             .toString("h:mm AP"));
+    mChatList->scrollToBottom();
+    // The sender clearly stopped typing once their message lands.
+    if (fromId != mSelfId) {
+        mTypingClearTimer->stop();
+        mTypingLabel->clear();
+    }
+}
+
+void RoomsPanel::showPeerTyping(const QString &fromName)
+{
+    mTypingLabel->setText(tr("%1 is typing…").arg(fromName));
+    mTypingClearTimer->start(2800);
+}
+
+void RoomsPanel::onChatSendClicked()
+{
+    QString text = mChatEdit->text().trimmed();
+    if (text.isEmpty())
+        return;
+    mChatEdit->clear();
+    emit chatSendRequested(text);
+}
+
+void RoomsPanel::onChatTextEdited(const QString &text)
+{
+    Q_UNUSED(text);
+    // At most one typing ping per 2 seconds while typing.
+    if (!mTypingSendTimer.isValid() || mTypingSendTimer.elapsed() >= 2000) {
+        mTypingSendTimer.start();
+        emit chatTyping();
     }
 }
 
@@ -176,6 +339,14 @@ void RoomsPanel::setSettings(const RoomSettings &settings)
 {
     mMaxMembersSpin->setValue(settings.maxMembers);
     mPeerEditCheck->setChecked(settings.membersCanEditEachOther);
+    if (mProjectEdit->text() != settings.projectName)
+        mProjectEdit->setText(settings.projectName);
+    if (settings.projectName.isEmpty()) {
+        mProjectLabel->setVisible(false);
+    } else {
+        mProjectLabel->setText(tr("Project: %1").arg(settings.projectName));
+        mProjectLabel->setVisible(mInRoom);
+    }
 }
 
 void RoomsPanel::showMessage(const QString &message)
@@ -244,5 +415,6 @@ void RoomsPanel::onApplySettingsClicked()
     RoomSettings settings;
     settings.maxMembers = mMaxMembersSpin->value();
     settings.membersCanEditEachOther = mPeerEditCheck->isChecked();
+    settings.projectName = mProjectEdit->text().trimmed();
     emit applySettingsRequested(settings);
 }

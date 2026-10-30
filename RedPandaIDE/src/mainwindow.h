@@ -324,7 +324,8 @@ private:
     void onRoomApplySettingsRequested(const RoomSettings &settings);
     void onRoomJoined(const QString &selfId, const QString &role,
                       const QString &code, const RoomSettings &settings,
-                      const QVector<RoomMemberInfo> &members);
+                      const QVector<RoomMemberInfo> &members,
+                      const QVector<RoomChatMessage> &chatLog);
     void onRoomMemberJoined(const RoomMemberInfo &member);
     void onRoomMemberLeft(const QString &memberId, const QString &name);
     void onRoomDocChanged(const QString &targetId, const RoomDoc &doc,
@@ -336,6 +337,12 @@ private:
     void onRoomClosedMessage(const QString &message);
     void onRoomError(const QString &message);
     void onRoomDisconnected();
+    void onRoomChatSendRequested(const QString &text);
+    void onRoomChatTyping();
+    void onRoomChatReceived(const QString &fromId, const QString &fromName,
+                            const QString &text, qint64 ts);
+    void onRoomMemberTyping(const QString &fromId, const QString &fromName);
+    void onRoomSaveCodeRequested();
     void buildContextMenus();
     void buildEncodingMenu();
     void buildNewlineMenu();

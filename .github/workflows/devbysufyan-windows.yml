@@ -124,22 +124,29 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.0.2 release with the installer and the
+      # Publishes (or updates) the v1.1.0 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.2
-          name: Dev by Sufyan — Red Panda Edition (v1.0.2)
+          tag_name: v1.1.0
+          name: Dev by Sufyan — Red Panda Edition (v1.1.0)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.0.2)**
+            **Dev by Sufyan — Red Panda Edition (v1.1.0)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
+            New in v1.1.0 — Rooms v2:
+            - **Room chat** — message everyone in the room right inside the Rooms panel, with history for late joiners and typing indicators
+            - **Project name** — the admin can name the room's project; everyone sees it
+            - **Member colors** — each member gets a stable color dot in the member list
+            - **Save Code** — save the code you are viewing to a file in one click
+
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed
+            - `DevBySufyan.apk` — the Android app (added by the Android build)
 
-            Rooms: create or join a room with a 4-digit code and code together live. The admin can view and edit everyone's code; the admin's own code stays view-only for everyone else.
+            Rooms: create or join a room with a 4-digit code and code together live — PC and phone share the same rooms. The admin can view and edit everyone's code; the admin's own code stays view-only for everyone else.
 
             Made by Abu Sufyan. Based on Red Panda C++ by Roy Qu and contributors — GNU GPL v3 (see LICENSE in this repo).
           files: |

@@ -61,7 +61,18 @@ RoomSettings settingsFromJson(const QJsonObject &object)
     settings.maxMembers = object.value("maxMembers").toInt(8);
     settings.membersCanEditEachOther =
             object.value("membersCanEditEachOther").toBool(false);
+    settings.projectName = object.value("projectName").toString();
     return settings;
+}
+
+RoomChatMessage chatFromJson(const QJsonObject &object)
+{
+    RoomChatMessage message;
+    message.fromId = object.value("fromId").toString();
+    message.fromName = object.value("fromName").toString();
+    message.text = object.value("text").toString();
+    message.ts = object.value("ts").toVariant().toLongLong();
+    return message;
 }
 
 } // namespace
@@ -181,9 +192,32 @@ void RoomClient::sendSettingsUpdate(const RoomSettings &settings)
     settingsObject["maxMembers"] = settings.maxMembers;
     settingsObject["membersCanEditEachOther"] =
             settings.membersCanEditEachOther;
+    settingsObject["projectName"] = settings.projectName;
     QJsonObject object;
     object["type"] = "settings_update";
     object["settings"] = settingsObject;
+    sendJson(object);
+}
+
+void RoomClient::sendChat(const QString &text)
+{
+    if (!mInRoom)
+        return;
+    QString trimmed = text.trimmed();
+    if (trimmed.isEmpty())
+        return;
+    QJsonObject object;
+    object["type"] = "chat";
+    object["text"] = trimmed.left(500);
+    sendJson(object);
+}
+
+void RoomClient::sendTyping()
+{
+    if (!mInRoom)
+        return;
+    QJsonObject object;
+    object["type"] = "typing";
     sendJson(object);
 }
 
@@ -270,9 +304,12 @@ void RoomClient::onTextMessageReceived(const QString &message)
         QVector<RoomMemberInfo> members;
         for (const QJsonValue &value : room.value("members").toArray())
             members.append(memberFromJson(value.toObject()));
+        QVector<RoomChatMessage> chatLog;
+        for (const QJsonValue &value : room.value("chatLog").toArray())
+            chatLog.append(chatFromJson(value.toObject()));
         emit roomJoined(mSelfId, mRole, mRoomCode,
                         settingsFromJson(room.value("settings").toObject()),
-                        members);
+                        members, chatLog);
     } else if (type == "member_joined") {
         emit memberJoined(memberFromJson(object.value("member").toObject()));
     } else if (type == "member_left") {
@@ -289,6 +326,13 @@ void RoomClient::onTextMessageReceived(const QString &message)
     } else if (type == "settings_changed") {
         emit settingsChanged(
                     settingsFromJson(object.value("settings").toObject()));
+    } else if (type == "chat_msg") {
+        RoomChatMessage message = chatFromJson(object);
+        emit chatReceived(message.fromId, message.fromName, message.text,
+                          message.ts);
+    } else if (type == "member_typing") {
+        emit memberTyping(object.value("fromId").toString(),
+                          object.value("fromName").toString());
     } else if (type == "kicked") {
         resetState();
         emit kicked(object.value("message").toString());

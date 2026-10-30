@@ -40,6 +40,14 @@ struct RoomMemberInfo {
 struct RoomSettings {
     int maxMembers = 8;
     bool membersCanEditEachOther = false;
+    QString projectName; // Rooms v2: optional shared project title
+};
+
+struct RoomChatMessage {
+    QString fromId;
+    QString fromName;
+    QString text;
+    qint64 ts = 0; // milliseconds since epoch
 };
 
 // RoomClient speaks the Dev by Sufyan room protocol (JSON over WebSocket)
@@ -61,6 +69,11 @@ public:
     void sendDocUpdate(const QString &targetId, const RoomDoc &doc);
     void sendSettingsUpdate(const RoomSettings &settings);
     void kick(const QString &targetId);
+    // Rooms v2 chat: the server broadcasts the message back to everyone in
+    // the room (including us), so there is no local echo here.
+    void sendChat(const QString &text);
+    // Rooms v2 typing indicator; the server throttles the relay (2 s).
+    void sendTyping();
     // Close the connection and forget the room. Emits nothing.
     void leave();
 
@@ -74,12 +87,16 @@ public:
 signals:
     void roomJoined(const QString &selfId, const QString &role,
                     const QString &code, const RoomSettings &settings,
-                    const QVector<RoomMemberInfo> &members);
+                    const QVector<RoomMemberInfo> &members,
+                    const QVector<RoomChatMessage> &chatLog);
     void memberJoined(const RoomMemberInfo &member);
     void memberLeft(const QString &memberId, const QString &name);
     void docChanged(const QString &targetId, const RoomDoc &doc, const QString &byName);
     void docDenied(const QString &targetId, const RoomDoc &doc, const QString &message);
     void settingsChanged(const RoomSettings &settings);
+    void chatReceived(const QString &fromId, const QString &fromName,
+                      const QString &text, qint64 ts);
+    void memberTyping(const QString &fromId, const QString &fromName);
     void kicked(const QString &message);
     void roomClosed(const QString &message);
     void errorReceived(const QString &message);
