@@ -21,6 +21,9 @@ jobs:
   windows-setup:
     name: Windows x64 setup (MSVC + Qt 6.8.3)
     runs-on: windows-2022
+    # Lets the final step publish the GitHub Release with the built files.
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -103,3 +106,31 @@ jobs:
           name: DevBySufyan-Portable
           path: deploy
           if-no-files-found: error
+
+      - name: Zip the portable folder for the release
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
+          Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
+
+      # Publishes (or updates) the v1.0 release with the installer and the
+      # portable zip attached, using the runner's built-in GITHUB_TOKEN.
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0
+          name: Dev by Sufyan — Red Panda Edition (v1.0)
+          body: |
+            **Dev by Sufyan — Red Panda Edition (v1.0)**
+
+            The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
+
+            - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
+            - `DevBySufyan-Portable.zip` — portable folder, no install needed
+
+            Rooms: create or join a room with a 4-digit code and code together live. The admin can view and edit everyone's code; the admin's own code stays view-only for everyone else.
+
+            Made by Abu Sufyan. Based on Red Panda C++ by Roy Qu and contributors — GNU GPL v3 (see LICENSE in this repo).
+          files: |
+            DevBySufyan-Setup.exe
+            DevBySufyan-Portable.zip
