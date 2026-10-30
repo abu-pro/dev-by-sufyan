@@ -7,7 +7,8 @@ name: Dev by Sufyan — Windows build
 # The Qt setup mirrors upstream's own Windows MSVC CI job
 # (.github/workflows/build-app.yml, job "windows_msvc"): windows-2022,
 # jurplel/install-qt-action@v4, Qt 6.8.3, arch win64_msvc2022_64.
-# One addition vs upstream: the "qtwebsockets" archive. Upstream's build
+# One addition vs upstream: the "qtwebsockets" add-on module (requested
+# via the action's "modules" input). Upstream's build
 # does not need it, but this fork's CMake lists WebSockets among its
 # REQUIRED Qt components (the Rooms client uses QWebSocket), and
 # qtsvg is kept because CMake also requires the Svg component.
@@ -39,7 +40,11 @@ jobs:
           host: windows
           target: desktop
           arch: win64_msvc2022_64
-          archives: qtbase qtsvg qttools qttranslations qtwebsockets
+          archives: qtbase qtsvg qttools qttranslations
+          # WebSockets is an add-on module in Qt 6, not a base archive:
+          # it must be requested via "modules" or aqtinstall silently
+          # skips it and CMake cannot find Qt6WebSockets (run 1 failure).
+          modules: qtwebsockets
 
       # Upstream enters the VS 2022 developer shell the same way; the
       # environment it sets up only lives inside this step, so configure,
