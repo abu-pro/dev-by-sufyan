@@ -60,7 +60,12 @@ jobs:
           Import-Module "$VsInstallPath/Common7/Tools/Microsoft.VisualStudio.DevShell.dll"
           Enter-VsDevShell -Arch amd64 -VsInstallPath $VsInstallPath -SkipAutomaticLocation
 
-          $QtDir = "${{ steps.qt.outputs.qt-dir }}"
+          # install-qt-action v4 exports QT_ROOT_DIR; its "qt-dir" step
+          # output is empty, which left $QtDir blank and broke the
+          # windeployqt path in run 2. Prefer the env var.
+          $QtDir = $env:QT_ROOT_DIR
+          if (-not $QtDir) { $QtDir = "${{ steps.qt.outputs.qt-dir }}" }
+          if (-not $QtDir) { throw "Qt directory not found (QT_ROOT_DIR empty)" }
           $DeployDir = Join-Path $PWD "deploy"
 
           cmake -S . -B build -G Ninja `
