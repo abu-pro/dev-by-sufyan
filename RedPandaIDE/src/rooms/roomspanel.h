@@ -1,0 +1,88 @@
+/*
+ * Copyright (C) 2026 Abu Sufyan
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+#ifndef ROOMS_ROOMSPANEL_H
+#define ROOMS_ROOMSPANEL_H
+
+#include <QWidget>
+#include "roomclient.h"
+
+class QCheckBox;
+class QGroupBox;
+class QLabel;
+class QLineEdit;
+class QListWidget;
+class QListWidgetItem;
+class QPushButton;
+class QSpinBox;
+
+// RoomsPanel is the "Rooms" dock widget content: create/join a room, see
+// the room code and the member list, and (for the admin) change the room
+// settings or kick a member. It only emits user intents; all networking
+// and editor handling lives in RoomClient and MainWindow.
+class RoomsPanel : public QWidget
+{
+    Q_OBJECT
+public:
+    explicit RoomsPanel(QWidget *parent = nullptr);
+
+    QString userName() const;
+
+    void setConnecting(const QString &message);
+    void setInRoom(const QString &code, const QString &role,
+                   const RoomSettings &settings);
+    void setNotInRoom(const QString &message = QString());
+    void setMembers(const QVector<RoomMemberInfo> &members,
+                    const QString &selfId);
+    void setSettings(const RoomSettings &settings);
+    void showMessage(const QString &message);
+
+signals:
+    void createRequested(const QString &name);
+    void joinRequested(const QString &name, const QString &code);
+    void leaveRequested();
+    void openMemberRequested(const QString &memberId);
+    void kickRequested(const QString &memberId);
+    void applySettingsRequested(const RoomSettings &settings);
+
+private slots:
+    void onCreateClicked();
+    void onJoinClicked();
+    void onMemberDoubleClicked(QListWidgetItem *item);
+    void onMemberContextMenu(const QPoint &pos);
+    void onApplySettingsClicked();
+
+private:
+    QString memberIdOf(QListWidgetItem *item) const;
+
+    QLineEdit *mNameEdit;
+    QPushButton *mCreateButton;
+    QLineEdit *mCodeEdit;
+    QPushButton *mJoinButton;
+    QLabel *mCodeLabel;
+    QLabel *mStatusLabel;
+    QListWidget *mMembersList;
+    QGroupBox *mSettingsBox;
+    QSpinBox *mMaxMembersSpin;
+    QCheckBox *mPeerEditCheck;
+    QPushButton *mLeaveButton;
+
+    bool mInRoom = false;
+    bool mIsAdmin = false;
+    QString mSelfId;
+};
+
+#endif // ROOMS_ROOMSPANEL_H
