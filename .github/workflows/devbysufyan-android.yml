@@ -1,10 +1,17 @@
 name: Dev by Sufyan — Android build
 
 # Builds the Android app (android/ in this repo) on a Linux runner and
-# attaches DevBySufyan.apk to the v1.1.0 GitHub Release, next to the
+# attaches DevBySufyan.apk to the v1.2.0 GitHub Release, next to the
 # Windows setup produced by devbysufyan-windows.yml. Release assets must
 # be published from inside Actions (the connector cannot upload to
 # uploads.github.com), hence the softprops step at the end.
+#
+# Signing (v1.2.0): ONE long-lived keystore, stored base64-encoded in the
+# DBS_KEYSTORE_B64 repo secret (passwords in DBS_KEYSTORE_PASS /
+# DBS_KEY_PASS, alias in DBS_KEY_ALIAS). Every release is signed with the
+# same key, so new APKs install over old ones. (v1.1.0 used a per-run
+# throwaway key; the v1.2.0 APK therefore needs one uninstall of the old
+# app first — after that, updates install in place.)
 
 on:
   workflow_dispatch:
@@ -39,31 +46,40 @@ jobs:
         with:
           gradle-version: '8.9'
 
-      # A fresh keystore per run: the APK is signed, just not with a
-      # long-lived private key (none is stored in this repo).
-      - name: Generate throwaway signing keystore
+      - name: Decode signing keystore (fixed key from repo secrets)
         run: |
-          keytool -genkeypair -v -keystore "$RUNNER_TEMP/dbs.keystore" -alias dbs \
-            -keyalg RSA -keysize 2048 -validity 10000 \
-            -storepass dbs-throwaway -keypass dbs-throwaway \
-            -dname "CN=Dev by Sufyan, O=Abu Sufyan"
+          echo "${{ secrets.DBS_KEYSTORE_B64 }}" | base64 --decode > "$RUNNER_TEMP/dbs.keystore"
+          test -s "$RUNNER_TEMP/dbs.keystore"
 
       - name: Build release APK
         env:
           DBS_KEYSTORE: ${{ runner.temp }}/dbs.keystore
-          DBS_KEYSTORE_PASS: dbs-throwaway
-          DBS_KEY_ALIAS: dbs
-          DBS_KEY_PASS: dbs-throwaway
+          DBS_KEYSTORE_PASS: ${{ secrets.DBS_KEYSTORE_PASS }}
+          DBS_KEY_ALIAS: ${{ secrets.DBS_KEY_ALIAS }}
+          DBS_KEY_PASS: ${{ secrets.DBS_KEY_PASS }}
         run: gradle assembleRelease --console=plain
 
       - name: Stage APK at repo root
         run: cp app/build/outputs/apk/release/app-release.apk ../DevBySufyan.apk
 
-      # Adds DevBySufyan.apk to the existing v1.1.0 release (created by
-      # the Windows workflow); creates the release if it does not exist.
-      - name: Attach APK to release v1.1.0
+      # Adds DevBySufyan.apk to the v1.2.0 release (created by the
+      # Windows workflow); creates the release if it does not exist.
+      - name: Attach APK to release v1.2.0
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
-          name: Dev by Sufyan — Red Panda Edition (v1.1.0)
+          tag_name: v1.2.0
+          name: Dev by Sufyan — Red Panda Edition (v1.2.0)
+          body: |
+            **Dev by Sufyan — Red Panda Edition (v1.2.0)**
+
+            The fix & professionalize release (full notes are on the Windows assets of this release):
+
+            - **PC setup now bundles the MinGW GCC compiler** — Compile & Run works out of the box
+            - **WhatsApp-style room chat** on PC, Android and web
+            - **Stable rooms** — a dropped connection no longer kills the room; clients reconnect and resume their seat automatically
+            - **Android: Create Room fixed**, visible connection states, WhatsApp-style chat
+
+            Note for Android: v1.1.0's APK was signed with a one-off key, so uninstall the old app once before installing v1.2.0. From v1.2.0 on, updates install over the previous version.
+
+            Made by Abu Sufyan. Based on Red Panda C++ by Roy Qu and contributors — GNU GPL v3 (see LICENSE in this repo).
           files: DevBySufyan.apk

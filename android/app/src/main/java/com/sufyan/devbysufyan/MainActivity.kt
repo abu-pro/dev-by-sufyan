@@ -30,6 +30,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,6 +83,7 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
     val chat = mutableStateListOf<ChatMsg>()
     var typingText by mutableStateOf("")
     var viewingId by mutableStateOf("") // whose doc the editor shows; "" = solo
+    var connState by mutableStateOf(RoomClient.ConnState.IDLE)
 
     val client = RoomClient(this)
     private val main = Handler(Looper.getMainLooper())
@@ -118,6 +120,7 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
         selfId = ""; role = "member"; roomCode = ""
         members.clear(); chat.clear(); typingText = ""
         viewingId = ""
+        connState = RoomClient.ConnState.IDLE
         screen = Screen.HOME
         if (msg != null) toast(msg)
     }
@@ -126,14 +129,20 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
     override fun onRoomJoined(selfId: String, role: String, code: String,
                               settings: RoomSettings, members: List<Member>,
                               chatLog: List<ChatMsg>) = post {
+        // A room_joined while we are already flagged in-room is a resume:
+        // the UI never left the room while the client reconnected.
+        val wasResume = this.inRoom
         this.selfId = selfId; this.role = role; this.roomCode = code
         this.settings = settings
         this.members.clear(); this.members.addAll(members)
         this.chat.clear(); this.chat.addAll(chatLog)
-        this.viewingId = selfId
+        // On a resume, keep viewing whoever we were viewing if they remain.
+        if (this.members.none { it.id == this.viewingId }) this.viewingId = selfId
         this.inRoom = true
         this.screen = Screen.ROOM
-        toast(if (role == "admin") "Room $code created — share the code!" else "Joined room $code")
+        if (!wasResume) {
+            toast(if (role == "admin") "Room $code created — share the code!" else "Joined room $code")
+        }
     }
 
     override fun onMemberJoined(member: Member) = post {
@@ -146,6 +155,19 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
         clearTyping(memberId)
         if (viewingId == memberId) viewingId = selfId
         if (name.isNotEmpty()) toast("$name left the room")
+    }
+
+    override fun onMemberAway(memberId: String, name: String) = post {
+        // Replace the list item so Compose recomposes the member row.
+        val idx = this.members.indexOfFirst { it.id == memberId }
+        if (idx >= 0) this.members[idx] = this.members[idx].copy(away = true)
+        if (name.isNotEmpty()) toast("$name lost connection — seat held for a bit")
+    }
+
+    override fun onMemberBack(memberId: String, name: String) = post {
+        val idx = this.members.indexOfFirst { it.id == memberId }
+        if (idx >= 0) this.members[idx] = this.members[idx].copy(away = false)
+        if (name.isNotEmpty()) toast("$name is back")
     }
 
     override fun onDocChanged(targetId: String, doc: RoomDoc) = post {
@@ -207,8 +229,12 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
         toast(message)
     }
 
-    override fun onDisconnected() = post {
-        if (inRoom) exitRoomUi("Disconnected from the room server.")
+    override fun onResumeFailed(message: String) = post {
+        exitRoomUi(message.ifEmpty { "Your seat in the room has expired. Please join again." })
+    }
+
+    override fun onConnectionState(state: RoomClient.ConnState) = post {
+        connState = state
     }
 }
 
@@ -229,10 +255,33 @@ class MainActivity : ComponentActivity() {
                 )
             ) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    when (state.screen) {
-                        Screen.HOME -> HomeScreen(state)
-                        Screen.EDITOR -> EditorScreen(state)
-                        Screen.ROOM -> RoomScreen(state)
+                    androidx.compose.foundation.layout.Box(modifier = Modifier.fillMaxSize()) {
+                        when (state.screen) {
+                            Screen.HOME -> HomeScreen(state)
+                            Screen.EDITOR -> EditorScreen(state)
+                            Screen.ROOM -> RoomScreen(state)
+                        }
+                        // Never fail silently: a create/join in flight shows
+                        // a clear progress card instead of a dead screen.
+                        if (state.connState == RoomClient.ConnState.CONNECTING) {
+                            androidx.compose.material3.Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = androidx.compose.material3.CardDefaults.cardColors(containerColor = Color.White),
+                                modifier = Modifier.align(Alignment.Center).padding(32.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(24.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    androidx.compose.material3.CircularProgressIndicator(color = BrandRed)
+                                    Spacer(Modifier.height(14.dp))
+                                    Text("Connecting to the room server…", fontWeight = FontWeight.SemiBold)
+                                    Text("This can take a few seconds on a slow network.",
+                                        fontSize = 12.5.sp, color = Color(0xFF6B7280),
+                                        textAlign = TextAlign.Center)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -251,8 +300,11 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun HomeScreen(state: AppState) {
-    var showCreate by mutableStateOf(false)
-    var showJoin by mutableStateOf(false)
+    // remember is essential: without it the state is recreated on every
+    // recomposition and the dialogs can never open (v1.1.0's dead
+    // Create/Join Room bug).
+    var showCreate by remember { mutableStateOf(false) }
+    var showJoin by remember { mutableStateOf(false) }
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -345,9 +397,11 @@ fun NameDialog(
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val prefs = rememberPrefs(ctx)
-    var name by mutableStateOf(prefs)
-    var code by mutableStateOf("")
-    var error by mutableStateOf("")
+    // remember is essential: without it every keystroke recomposes and
+    // resets the field to the saved value, so a name can never be typed.
+    var name by remember { mutableStateOf(prefs) }
+    var code by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },

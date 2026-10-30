@@ -57,6 +57,21 @@ fun RoomScreen(state: AppState) {
         modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
+        // ---- reconnect banner: the seat is held server-side, stay put ----
+        if (state.connState == RoomClient.ConnState.RECONNECTING) {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF3E0)),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "⚠ Connection lost — reconnecting… Your seat in the room is held, please wait.",
+                    modifier = Modifier.padding(12.dp), fontSize = 13.sp,
+                    color = Color(0xFF8D6E00), fontWeight = FontWeight.SemiBold
+                )
+            }
+            Spacer(Modifier.height(12.dp))
+        }
         // ---- header: big code, project, role ----
         Card(
             colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -150,16 +165,19 @@ private fun MemberRow(state: AppState, m: Member) {
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(modifier = Modifier.size(12.dp).clip(CircleShape).background(memberColor(m.id)))
+            Box(modifier = Modifier.size(12.dp).clip(CircleShape)
+                .background(if (m.away) Color(0xFFBDBDBD) else memberColor(m.id)))
             Spacer(Modifier.width(10.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     m.name + if (isSelf) " (You)" else "",
-                    fontWeight = FontWeight.SemiBold, fontSize = 15.sp
+                    fontWeight = FontWeight.SemiBold, fontSize = 15.sp,
+                    color = if (m.away) Color(0xFF9AA0A6) else Color.Unspecified
                 )
                 Text(
                     (LANG_LABELS[m.doc.language] ?: m.doc.language) +
-                        if (m.role == "admin") " · Admin" else "",
+                        (if (m.role == "admin") " · Admin" else "") +
+                        (if (m.away) " · Away — connection lost" else ""),
                     fontSize = 12.sp, color = Color(0xFF6B7280)
                 )
             }
@@ -178,6 +196,15 @@ private fun MemberRow(state: AppState, m: Member) {
     }
 }
 
+// WhatsApp palette for the room chat.
+private val WaChatBg = Color(0xFFECE5DD)
+private val WaOwnBubble = Color(0xFFDCF8C6)
+private val WaOtherBubble = Color.White
+private val WaInk = Color(0xFF111B21)
+private val WaMeta = Color(0xFF667781)
+private val WaGreen = Color(0xFF25D366)
+private val WaTicks = Color(0xFF53BDEB)
+
 @Composable
 private fun ChatSection(state: AppState) {
     var input by remember { mutableStateOf("") }
@@ -193,44 +220,64 @@ private fun ChatSection(state: AppState) {
         shape = RoundedCornerShape(16.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Text("💬 Room Chat", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+        Column {
+            Text("💬 Room Chat", fontWeight = FontWeight.Bold, fontSize = 17.sp,
+                modifier = Modifier.padding(start = 14.dp, top = 14.dp, end = 14.dp))
             Spacer(Modifier.height(10.dp))
-            if (state.chat.isEmpty()) {
-                Text("No messages yet — say hello! 👋", color = Color(0xFF9AA0A6), fontSize = 13.5.sp,
-                    modifier = Modifier.padding(vertical = 8.dp))
-            } else {
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier.fillMaxWidth().height(260.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(state.chat) { msg -> ChatBubble(state, msg) }
+            // WhatsApp-style conversation area (warm beige background).
+            Column(modifier = Modifier.background(WaChatBg).padding(horizontal = 10.dp, vertical = 10.dp)) {
+                if (state.chat.isEmpty()) {
+                    Text("No messages yet — say hello! 👋", color = WaMeta, fontSize = 13.5.sp,
+                        modifier = Modifier.padding(vertical = 8.dp))
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxWidth().height(280.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        items(state.chat) { msg -> ChatBubble(state, msg) }
+                    }
+                }
+                Box(modifier = Modifier.height(20.dp).padding(top = 4.dp)) {
+                    if (state.typingText.isNotEmpty()) {
+                        Text(state.typingText, fontSize = 12.5.sp, color = WaMeta,
+                            fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
+                    }
                 }
             }
-            Box(modifier = Modifier.height(20.dp).padding(top = 4.dp)) {
-                if (state.typingText.isNotEmpty()) {
-                    Text(state.typingText, fontSize = 12.5.sp, color = Color(0xFF6B7280),
-                        fontStyle = androidx.compose.ui.text.font.FontStyle.Italic)
-                }
-            }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = {
-                        input = it
-                        val now = System.currentTimeMillis()
-                        if (now - lastTypingSent > 2000) {
-                            lastTypingSent = now
-                            state.client.sendTyping()
-                        }
-                    },
-                    placeholder = { Text("Type a message…") },
-                    singleLine = true,
+            // Rounded composer bar with a round send button, like WhatsApp.
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(10.dp)
+            ) {
+                androidx.compose.material3.Surface(
+                    shape = RoundedCornerShape(24.dp),
+                    color = Color(0xFFF0F2F5),
                     modifier = Modifier.weight(1f)
-                )
+                ) {
+                    androidx.compose.material3.TextField(
+                        value = input,
+                        onValueChange = {
+                            input = it
+                            val now = System.currentTimeMillis()
+                            if (now - lastTypingSent > 2000) {
+                                lastTypingSent = now
+                                state.client.sendTyping()
+                            }
+                        },
+                        placeholder = { Text("Type a message") },
+                        singleLine = true,
+                        colors = androidx.compose.material3.TextFieldDefaults.colors(
+                            focusedContainerColor = Color.Transparent,
+                            unfocusedContainerColor = Color.Transparent,
+                            focusedIndicatorColor = Color.Transparent,
+                            unfocusedIndicatorColor = Color.Transparent
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
                 Spacer(Modifier.width(8.dp))
-                Button(
+                androidx.compose.material3.IconButton(
                     onClick = {
                         val t = input.trim()
                         if (t.isNotEmpty()) {
@@ -238,10 +285,11 @@ private fun ChatSection(state: AppState) {
                             input = ""
                         }
                     },
-                    colors = ButtonDefaults.buttonColors(containerColor = BrandRed),
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.height(52.dp)
-                ) { Text("Send", fontWeight = FontWeight.SemiBold) }
+                    modifier = Modifier.size(48.dp).clip(CircleShape).background(WaGreen)
+                ) {
+                    Text("➤", color = Color.White, fontSize = 19.sp,
+                        modifier = Modifier.padding(start = 3.dp))
+                }
             }
         }
     }
@@ -257,20 +305,31 @@ private fun ChatBubble(state: AppState, msg: ChatMsg) {
         Column(
             modifier = Modifier.fillMaxWidth(0.85f)
                 .background(
-                    if (own) BrandRed else Color(0xFFEEF3F8),
-                    RoundedCornerShape(14.dp, 14.dp, 14.dp, if (own) 14.dp else 4.dp)
+                    if (own) WaOwnBubble else WaOtherBubble,
+                    // WhatsApp tail corner: the top corner on the sender's
+                    // side is nearly square, the rest are round.
+                    if (own) RoundedCornerShape(10.dp, 2.dp, 10.dp, 10.dp)
+                    else RoundedCornerShape(2.dp, 10.dp, 10.dp, 10.dp)
                 )
-                .padding(horizontal = 11.dp, vertical = 7.dp)
+                .padding(start = 9.dp, end = 7.dp, top = 6.dp, bottom = 5.dp)
         ) {
             if (!own) {
-                Text(msg.fromName, fontWeight = FontWeight.Bold, fontSize = 12.sp,
+                Text(msg.fromName, fontWeight = FontWeight.Bold, fontSize = 12.5.sp,
                     color = memberColor(msg.fromId))
             }
-            Text(msg.text, fontSize = 14.5.sp, color = if (own) Color.White else Color(0xFF1B1B1F))
-            if (time.isNotEmpty()) {
-                Text(time, fontSize = 10.sp,
-                    color = if (own) Color(0xFFFFD9D9) else Color(0xFF9AA0A6),
-                    modifier = Modifier.align(Alignment.End))
+            Text(msg.text, fontSize = 14.5.sp, color = WaInk)
+            Row(
+                horizontalArrangement = Arrangement.End,
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (time.isNotEmpty()) {
+                    Text(time, fontSize = 10.sp, color = WaMeta)
+                }
+                if (own) {
+                    // The server echoed our message back = delivered.
+                    Text(" ✓✓", fontSize = 10.sp, color = WaTicks, fontWeight = FontWeight.Bold)
+                }
             }
         }
     }
