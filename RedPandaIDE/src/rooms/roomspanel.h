@@ -32,11 +32,13 @@ class QListWidgetItem;
 class QPushButton;
 class QSpinBox;
 class QTimer;
+class QWidget;
 
-// RoomsPanel is the "Rooms" dock widget content: create/join a room, see
-// the room code and the member list, and (for the admin) change the room
-// settings or kick a member. It only emits user intents; all networking
-// and editor handling lives in RoomClient and MainWindow.
+// RoomsPanel is the "Rooms" dock widget content, organized in clear
+// sections: Room (create/join, big copyable code, connection state),
+// Members (color dot + role badge per member), Chat (WhatsApp-style
+// bubbles) and Admin settings. It only emits user intents; all
+// networking and editor handling lives in RoomClient and MainWindow.
 class RoomsPanel : public QWidget
 {
     Q_OBJECT
@@ -49,11 +51,14 @@ public:
     void setInRoom(const QString &code, const QString &role,
                    const RoomSettings &settings);
     void setNotInRoom(const QString &message = QString());
+    // v1.2.0: show/hide the amber "reconnecting" banner and freeze the
+    // chat composer while the client resumes the session.
+    void setReconnecting(bool reconnecting);
     void setMembers(const QVector<RoomMemberInfo> &members,
                     const QString &selfId);
     void setSettings(const RoomSettings &settings);
     void showMessage(const QString &message);
-    // Rooms v2 chat
+    // Rooms v2 chat (WhatsApp-style bubbles since v1.2.0)
     void setChatLog(const QVector<RoomChatMessage> &log,
                     const QString &selfId);
     void appendChatMessage(const QString &fromId, const QString &fromName,
@@ -83,35 +88,46 @@ private slots:
     void onApplySettingsClicked();
     void onChatSendClicked();
     void onChatTextEdited(const QString &text);
+    void onCopyCodeClicked();
 
 private:
     QString memberIdOf(QListWidgetItem *item) const;
 
+    // "Room" section: join widgets vs in-room widgets are two containers.
+    QWidget *mJoinBox;
     QLineEdit *mNameEdit;
     QPushButton *mCreateButton;
     QLineEdit *mCodeEdit;
     QPushButton *mJoinButton;
+    QWidget *mRoomInfoBox;
     QLabel *mCodeLabel;
+    QPushButton *mCopyCodeButton;
     QLabel *mProjectLabel;
+    QPushButton *mLeaveButton;
     QLabel *mStatusLabel;
+    QLabel *mConnLabel;
+    // "Members" section
+    QGroupBox *mMembersBox;
     QListWidget *mMembersList;
     QPushButton *mSaveCodeButton;
+    // "Chat" section
     QGroupBox *mChatBox;
     QListWidget *mChatList;
     QLabel *mTypingLabel;
     QLineEdit *mChatEdit;
     QPushButton *mChatSendButton;
+    // "Admin settings" section
     QGroupBox *mSettingsBox;
     QLineEdit *mProjectEdit;
     QSpinBox *mMaxMembersSpin;
     QCheckBox *mPeerEditCheck;
-    QPushButton *mLeaveButton;
     QTimer *mTypingClearTimer;
     QElapsedTimer mTypingSendTimer;
 
     bool mInRoom = false;
     bool mIsAdmin = false;
     QString mSelfId;
+    QString mRoomCode;
 };
 
 #endif // ROOMS_ROOMSPANEL_H

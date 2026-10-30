@@ -17,11 +17,13 @@
 #ifndef ROOMS_ROOMCLIENT_H
 #define ROOMS_ROOMCLIENT_H
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <QString>
 #include <QVector>
 
 class QJsonObject;
+class QTimer;
 class QWebSocket;
 
 struct RoomDoc {
@@ -34,6 +36,7 @@ struct RoomMemberInfo {
     QString id;
     QString name;
     QString role; // "admin" | "member"
+    bool away = false; // v1.2.0: connection dropped, seat held for resume
     RoomDoc doc;
 };
 
@@ -53,6 +56,14 @@ struct RoomChatMessage {
 // RoomClient speaks the Dev by Sufyan room protocol (JSON over WebSocket)
 // with the live room server. It contains no UI code: all server events are
 // forwarded as signals, all user actions are plain method calls.
+//
+// v1.2.0 connection model: the server holds a dropped member's seat for a
+// 90 s grace period. When the socket drops unexpectedly while we are in a
+// room, RoomClient reconnects with backoff and sends a "resume" request
+// with the token from room_joined; the server answers with a fresh
+// room_joined (same identity, current docs and chat history) and the
+// session continues. "disconnected()" is therefore only emitted when the
+// session is really over (gave up, or the drop happened outside a room).
 class RoomClient : public QObject
 {
     Q_OBJECT
@@ -74,11 +85,17 @@ public:
     void sendChat(const QString &text);
     // Rooms v2 typing indicator; the server throttles the relay (2 s).
     void sendTyping();
-    // Close the connection and forget the room. Emits nothing.
+    // Deliberate exit: tells the server (leave_room) so the seat is freed
+    // at once, then closes the connection and forgets the room.
     void leave();
+    // Abruptly drops the socket without any protocol goodbye, simulating
+    // a network failure. In a room, the reconnect/resume machinery takes
+    // over. (Used by the protocol harness; harmless in production.)
+    void abortConnection();
 
     bool isConnected() const;
     bool isInRoom() const { return mInRoom; }
+    bool isReconnecting() const { return mReconnectActive; }
     QString selfId() const { return mSelfId; }
     QString role() const { return mRole; }
     bool isAdmin() const { return mRole == "admin"; }
@@ -91,6 +108,8 @@ signals:
                     const QVector<RoomChatMessage> &chatLog);
     void memberJoined(const RoomMemberInfo &member);
     void memberLeft(const QString &memberId, const QString &name);
+    void memberAway(const QString &memberId, const QString &name);
+    void memberBack(const QString &memberId, const QString &name);
     void docChanged(const QString &targetId, const RoomDoc &doc, const QString &byName);
     void docDenied(const QString &targetId, const RoomDoc &doc, const QString &message);
     void settingsChanged(const RoomSettings &settings);
@@ -100,22 +119,34 @@ signals:
     void kicked(const QString &message);
     void roomClosed(const QString &message);
     void errorReceived(const QString &message);
-    // The socket closed while we were connecting or in a room, without a
-    // protocol-level goodbye (network drop, server restart, we were kicked
-    // and the server closed the socket right after the "kicked" message).
+    // The socket dropped while in a room; a resume attempt sequence has
+    // started. roomJoined + resumed() follow on success.
+    void reconnecting();
+    // A dropped session was successfully resumed (roomJoined has just
+    // been emitted with the refreshed state).
+    void resumed();
+    // The server refused the resume (seat expired): the session is over.
+    void resumeFailed(const QString &message);
+    // The connection ended for good while connecting or in a room,
+    // without a protocol-level goodbye and with no resume possible.
     void disconnected();
 
 private slots:
     void onConnected();
     void onTextMessageReceived(const QString &message);
     void onDisconnected();
+    void onReconnectTimer();
+    void onPingTimer();
 
 private:
     void openSocket();
     void sendJson(const QJsonObject &object);
     void resetState();
+    void scheduleReconnect();
 
     QWebSocket *mSocket;
+    QTimer *mReconnectTimer;
+    QTimer *mPingTimer;
     bool mInRoom = false;
     bool mConnecting = false;
     bool mLeaving = false;
@@ -123,8 +154,15 @@ private:
     QString mRole;
     QString mRoomCode;
 
+    // v1.2.0 resume state
+    QString mResumeToken;
+    bool mReconnectActive = false;
+    int mReconnectAttempt = 0;
+    int mSocketGeneration = 0;
+    QElapsedTimer mDropElapsed;
+
     // request that is sent as soon as the socket connects
-    enum class PendingAction { None, Create, Join };
+    enum class PendingAction { None, Create, Join, Resume };
     PendingAction mPendingAction = PendingAction::None;
     QString mPendingName;
     QString mPendingCode;

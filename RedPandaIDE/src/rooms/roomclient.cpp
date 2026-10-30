@@ -51,6 +51,7 @@ RoomMemberInfo memberFromJson(const QJsonObject &object)
     member.id = object.value("id").toString();
     member.name = object.value("name").toString();
     member.role = object.value("role").toString("member");
+    member.away = object.value("away").toBool(false);
     member.doc = docFromJson(object.value("doc").toObject());
     return member;
 }
@@ -75,11 +76,20 @@ RoomChatMessage chatFromJson(const QJsonObject &object)
     return message;
 }
 
+// Reconnect backoff: quick first retries, then a steady 15 s rhythm.
+// The server's resume grace is 90 s; the client gives up after ~70 s of
+// wall-clock outage (checked in onDisconnected), leaving margin for one
+// last attempt to land inside the grace window.
+const int RECONNECT_DELAYS_MS[] = {1000, 2000, 4000, 8000, 15000};
+const qint64 RECONNECT_GIVE_UP_MS = 70000;
+
 } // namespace
 
 RoomClient::RoomClient(QObject *parent) :
     QObject{parent},
-    mSocket{new QWebSocket{QString(), QWebSocketProtocol::VersionLatest, this}}
+    mSocket{new QWebSocket{QString(), QWebSocketProtocol::VersionLatest, this}},
+    mReconnectTimer{new QTimer{this}},
+    mPingTimer{new QTimer{this}}
 {
     // Honor the OS / environment proxy settings (needed on networks
     // where outgoing connections must go through a proxy).
@@ -107,6 +117,14 @@ RoomClient::RoomClient(QObject *parent) :
             emit errorReceived(mSocket->errorString());
     });
 #endif
+    mReconnectTimer->setSingleShot(true);
+    connect(mReconnectTimer, &QTimer::timeout,
+            this, &RoomClient::onReconnectTimer);
+    // Application-level keepalive: the server answers {type:"pong"} and
+    // ignores nothing else about it; the traffic keeps proxies and NAT
+    // mappings warm on flaky networks.
+    mPingTimer->setInterval(25000);
+    connect(mPingTimer, &QTimer::timeout, this, &RoomClient::onPingTimer);
 }
 
 RoomClient::~RoomClient() = default;
@@ -139,12 +157,18 @@ void RoomClient::openSocket()
     if (!proxies.isEmpty())
         mSocket->setProxy(proxies.constFirst());
     mSocket->open(QUrl(serverUrl()));
-    QTimer::singleShot(20000, this, [this]() {
+    // Connect watchdog, tagged with the socket generation so a stale
+    // timer can never abort a newer attempt.
+    const int generation = ++mSocketGeneration;
+    QTimer::singleShot(20000, this, [this, generation]() {
+        if (generation != mSocketGeneration)
+            return;
         if (mConnecting && !isConnected()) {
             mConnecting = false;
             mSocket->abort();
-            emit errorReceived(
-                        tr("Connection to the room server timed out."));
+            if (!mReconnectActive)
+                emit errorReceived(
+                            tr("Connection to the room server timed out."));
         }
     });
 }
@@ -234,9 +258,24 @@ void RoomClient::kick(const QString &targetId)
 void RoomClient::leave()
 {
     mLeaving = true;
+    // Deliberate exit: free the seat at once instead of parking it in
+    // the server's resume grace.
+    if (mInRoom && isConnected()) {
+        QJsonObject object;
+        object["type"] = "leave_room";
+        sendJson(object);
+    }
     resetState();
     if (mSocket->state() != QAbstractSocket::UnconnectedState)
         mSocket->close();
+    else
+        mLeaving = false;
+}
+
+void RoomClient::abortConnection()
+{
+    if (mSocket->state() != QAbstractSocket::UnconnectedState)
+        mSocket->abort();
 }
 
 void RoomClient::resetState()
@@ -247,6 +286,11 @@ void RoomClient::resetState()
     mSelfId.clear();
     mRole.clear();
     mRoomCode.clear();
+    mResumeToken.clear();
+    mReconnectActive = false;
+    mReconnectAttempt = 0;
+    mReconnectTimer->stop();
+    mPingTimer->stop();
 }
 
 void RoomClient::sendJson(const QJsonObject &object)
@@ -263,25 +307,84 @@ void RoomClient::onConnected()
     if (mPendingAction == PendingAction::None)
         return;
     QJsonObject object;
-    if (mPendingAction == PendingAction::Create)
-        object["type"] = "create_room";
-    else
-        object["type"] = "join_room";
-    object["name"] = mPendingName;
-    if (mPendingAction == PendingAction::Join)
-        object["code"] = mPendingCode;
-    object["doc"] = docToJson(mPendingDoc);
+    if (mPendingAction == PendingAction::Resume) {
+        object["type"] = "resume";
+        object["code"] = mRoomCode;
+        object["resumeToken"] = mResumeToken;
+    } else {
+        if (mPendingAction == PendingAction::Create)
+            object["type"] = "create_room";
+        else
+            object["type"] = "join_room";
+        object["name"] = mPendingName;
+        if (mPendingAction == PendingAction::Join)
+            object["code"] = mPendingCode;
+        object["doc"] = docToJson(mPendingDoc);
+    }
     mPendingAction = PendingAction::None;
     sendJson(object);
 }
 
+void RoomClient::scheduleReconnect()
+{
+    if (mReconnectTimer->isActive())
+        return;
+    int index = qMin(mReconnectAttempt,
+                     int(sizeof(RECONNECT_DELAYS_MS) / sizeof(int)) - 1);
+    mReconnectTimer->start(RECONNECT_DELAYS_MS[index]);
+}
+
+void RoomClient::onReconnectTimer()
+{
+    if (!mReconnectActive || mLeaving)
+        return;
+    ++mReconnectAttempt;
+    mPendingAction = PendingAction::Resume;
+    openSocket();
+    if (isConnected())
+        onConnected();
+}
+
+void RoomClient::onPingTimer()
+{
+    if (mInRoom && isConnected()) {
+        QJsonObject object;
+        object["type"] = "ping";
+        sendJson(object);
+    }
+}
+
 void RoomClient::onDisconnected()
 {
-    bool wasActive = mInRoom || mConnecting;
-    bool wasLeaving = mLeaving;
-    mLeaving = false;
+    const bool wasActive = mInRoom || mConnecting;
+    mConnecting = false;
+    mPingTimer->stop();
+    if (mLeaving) {
+        mLeaving = false;
+        resetState();
+        return;
+    }
+    // Unexpected drop while holding a seat: the server keeps the seat
+    // for its grace period, so try to resume instead of ending the
+    // session. Only a drop outside a room (or a failed initial connect)
+    // falls through to the terminal path.
+    if (mInRoom && !mResumeToken.isEmpty()) {
+        if (!mReconnectActive) {
+            mReconnectActive = true;
+            mReconnectAttempt = 0;
+            mDropElapsed.start();
+            emit reconnecting();
+        }
+        if (mDropElapsed.elapsed() > RECONNECT_GIVE_UP_MS) {
+            resetState();
+            emit disconnected();
+            return;
+        }
+        scheduleReconnect();
+        return;
+    }
     resetState();
-    if (wasActive && !wasLeaving)
+    if (wasActive)
         emit disconnected();
 }
 
@@ -297,10 +400,16 @@ void RoomClient::onTextMessageReceived(const QString &message)
 
     if (type == "room_joined") {
         QJsonObject room = object.value("room").toObject();
+        bool wasResume = mReconnectActive;
         mSelfId = object.value("selfId").toString();
         mRole = object.value("role").toString("member");
         mRoomCode = room.value("code").toString();
+        mResumeToken = object.value("resumeToken").toString();
         mInRoom = true;
+        mReconnectActive = false;
+        mReconnectAttempt = 0;
+        mReconnectTimer->stop();
+        mPingTimer->start();
         QVector<RoomMemberInfo> members;
         for (const QJsonValue &value : room.value("members").toArray())
             members.append(memberFromJson(value.toObject()));
@@ -310,10 +419,24 @@ void RoomClient::onTextMessageReceived(const QString &message)
         emit roomJoined(mSelfId, mRole, mRoomCode,
                         settingsFromJson(room.value("settings").toObject()),
                         members, chatLog);
+        if (wasResume)
+            emit resumed();
+    } else if (type == "resume_failed") {
+        QString failMessage = object.value("message").toString();
+        resetState();
+        emit resumeFailed(failMessage.isEmpty()
+            ? tr("Your seat in the room has expired. Please join again.")
+            : failMessage);
     } else if (type == "member_joined") {
         emit memberJoined(memberFromJson(object.value("member").toObject()));
     } else if (type == "member_left") {
         emit memberLeft(object.value("memberId").toString(),
+                        object.value("name").toString());
+    } else if (type == "member_away") {
+        emit memberAway(object.value("memberId").toString(),
+                        object.value("name").toString());
+    } else if (type == "member_back") {
+        emit memberBack(object.value("memberId").toString(),
                         object.value("name").toString());
     } else if (type == "doc_changed") {
         emit docChanged(object.value("targetId").toString(),
@@ -327,9 +450,9 @@ void RoomClient::onTextMessageReceived(const QString &message)
         emit settingsChanged(
                     settingsFromJson(object.value("settings").toObject()));
     } else if (type == "chat_msg") {
-        RoomChatMessage message = chatFromJson(object);
-        emit chatReceived(message.fromId, message.fromName, message.text,
-                          message.ts);
+        RoomChatMessage chatMessage = chatFromJson(object);
+        emit chatReceived(chatMessage.fromId, chatMessage.fromName,
+                          chatMessage.text, chatMessage.ts);
     } else if (type == "member_typing") {
         emit memberTyping(object.value("fromId").toString(),
                           object.value("fromName").toString());
@@ -342,4 +465,5 @@ void RoomClient::onTextMessageReceived(const QString &message)
     } else if (type == "error") {
         emit errorReceived(object.value("message").toString());
     }
+    // "pong" (answer to our app-level ping) needs no handling.
 }

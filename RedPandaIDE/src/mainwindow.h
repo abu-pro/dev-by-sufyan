@@ -328,6 +328,12 @@ private:
                       const QVector<RoomChatMessage> &chatLog);
     void onRoomMemberJoined(const RoomMemberInfo &member);
     void onRoomMemberLeft(const QString &memberId, const QString &name);
+    // v1.2.0: connection stability (seat held server-side, auto-resume)
+    void onRoomMemberAway(const QString &memberId, const QString &name);
+    void onRoomMemberBack(const QString &memberId, const QString &name);
+    void onRoomReconnecting();
+    void onRoomResumed();
+    void onRoomResumeFailed(const QString &message);
     void onRoomDocChanged(const QString &targetId, const RoomDoc &doc,
                           const QString &byName);
     void onRoomDocDenied(const QString &targetId, const RoomDoc &doc,

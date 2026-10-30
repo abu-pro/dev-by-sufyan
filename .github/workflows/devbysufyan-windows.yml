@@ -93,6 +93,39 @@ jobs:
           Copy-Item LICENSE (Join-Path $DeployDir "LICENSE") -Force
           Get-ChildItem $DeployDir | Select-Object Name, Length
 
+      # v1.2.0: bundle a real compiler. v1.1.0 shipped the IDE alone, so
+      # Compile & Run was dead on a clean PC. Red Panda's first run calls
+      # CompilerSets::findSets, which scans the exe folder for mingw*/gcc*
+      # directories and builds compiler sets from <dir>\bin\gcc.exe — so
+      # staging niXman MinGW as deploy\mingw64 (the upstream layout) makes
+      # the installed app find GCC/G++ with no configuration. The Inno
+      # script already packages deploy\* recursively, and the portable zip
+      # is made from the same folder, so both deliverables get it.
+      - name: Download and stage MinGW compiler (niXman GCC 14.2.0)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $mingwUrl = "https://github.com/niXman/mingw-builds-binaries/releases/download/14.2.0-rt_v12-rev2/x86_64-14.2.0-release-posix-seh-ucrt-rt_v12-rev2.7z"
+          curl.exe -L --fail -o "mingw.7z" $mingwUrl
+          if ($LASTEXITCODE -ne 0) { throw "MinGW download failed" }
+          $archive = Get-Item "mingw.7z"
+          if ($archive.Length -lt 80000000) { throw "MinGW archive suspiciously small: $($archive.Length) bytes" }
+          $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          if (-not (Test-Path $sevenZip)) { throw "7z.exe not found at $sevenZip" }
+          & $sevenZip x "mingw.7z" -o"mingw-extract" -y | Out-Null
+          if ($LASTEXITCODE -ne 0) { throw "MinGW extraction failed" }
+          # Locate bin\gcc.exe wherever the archive rooted its tree and
+          # stage that root as deploy\mingw64.
+          $gcc = Get-ChildItem "mingw-extract" -Recurse -Filter "gcc.exe" |
+            Where-Object { $_.Directory.Name -eq "bin" } | Select-Object -First 1
+          if (-not $gcc) { throw "gcc.exe not found inside the MinGW archive" }
+          $mingwRoot = $gcc.Directory.Parent.FullName
+          Copy-Item $mingwRoot (Join-Path $PWD "deploy\mingw64") -Recurse
+          if (-not (Test-Path "deploy\mingw64\bin\g++.exe")) { throw "g++.exe missing after staging MinGW" }
+          & "deploy\mingw64\bin\gcc.exe" --version | Select-Object -First 1
+          Remove-Item "mingw.7z" -Force
+          Remove-Item "mingw-extract" -Recurse -Force
+
       - name: Build installer (Inno Setup)
         shell: pwsh
         run: |
@@ -124,27 +157,27 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.1.0 release with the installer and the
+      # Publishes (or updates) the v1.2.0 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
-          name: Dev by Sufyan — Red Panda Edition (v1.1.0)
+          tag_name: v1.2.0
+          name: Dev by Sufyan — Red Panda Edition (v1.2.0)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.1.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.2.0)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.1.0 — Rooms v2:
-            - **Room chat** — message everyone in the room right inside the Rooms panel, with history for late joiners and typing indicators
-            - **Project name** — the admin can name the room's project; everyone sees it
-            - **Member colors** — each member gets a stable color dot in the member list
-            - **Save Code** — save the code you are viewing to a file in one click
+            New in v1.2.0 — the fix & professionalize release:
+            - **Compiler built in** — the setup and the portable folder now bundle the MinGW GCC 14.2 compiler, so **Compile & Run works out of the box**, no configuration needed
+            - **WhatsApp-style room chat** — chat bubbles in the Rooms panel (and matching chat in the Android app and the web version), with history and typing indicators
+            - **Stable rooms** — a dropped connection no longer kills the room: your seat is held and the app reconnects and resumes automatically; members show as "Away" while gone
+            - **Professional Rooms panel** — clear Room / Members / Chat sections, role badges (Admin / Away), and a big room code with a Copy button
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed
-            - `DevBySufyan.apk` — the Android app (added by the Android build)
+            - `DevBySufyan.apk` — the Android app (added by the Android build; signed with the project's fixed key from this version on, so future updates install in place)
 
             Rooms: create or join a room with a 4-digit code and code together live — PC and phone share the same rooms. The admin can view and edit everyone's code; the admin's own code stays view-only for everyone else.
 

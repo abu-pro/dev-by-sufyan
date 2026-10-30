@@ -131,6 +131,16 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomMemberJoined);
     connect(mRoomClient, &RoomClient::memberLeft,
             this, &MainWindow::onRoomMemberLeft);
+    connect(mRoomClient, &RoomClient::memberAway,
+            this, &MainWindow::onRoomMemberAway);
+    connect(mRoomClient, &RoomClient::memberBack,
+            this, &MainWindow::onRoomMemberBack);
+    connect(mRoomClient, &RoomClient::reconnecting,
+            this, &MainWindow::onRoomReconnecting);
+    connect(mRoomClient, &RoomClient::resumed,
+            this, &MainWindow::onRoomResumed);
+    connect(mRoomClient, &RoomClient::resumeFailed,
+            this, &MainWindow::onRoomResumeFailed);
     connect(mRoomClient, &RoomClient::docChanged,
             this, &MainWindow::onRoomDocChanged);
     connect(mRoomClient, &RoomClient::docDenied,
@@ -448,6 +458,16 @@ void MainWindow::onRoomJoined(const QString &selfId, const QString &role,
     mRoomsPanel->setInRoom(code, role, settings);
     mRoomsPanel->setMembers(members, mRoomClient->selfId());
     mRoomsPanel->setChatLog(chatLog, mRoomClient->selfId());
+    // After a resume, the fresh snapshot carries everyone's current
+    // code: refresh any member editors that are already open. Our own
+    // editor is deliberately NOT overwritten — it may hold edits typed
+    // while offline, which onRoomResumed() pushes to the server.
+    for (const RoomMemberInfo &member : members) {
+        if (member.id == mRoomClient->selfId())
+            continue;
+        if (Editor *editor = roomEditorForTarget(member.id))
+            applyRemoteRoomDoc(editor, member.doc, true);
+    }
     applyRoomEditability();
     statusBar()->showMessage(
                 tr("Joined room %1. Share the code with your friends.")
@@ -580,6 +600,61 @@ void MainWindow::onRoomMemberLeft(const QString &memberId, const QString &name)
         statusBar()->showMessage(tr("%1 left the room.").arg(name), 4000);
 }
 
+// ---------------------------------------------------------------------------
+// v1.2.0: connection stability — away/back, reconnecting, resume results
+// ---------------------------------------------------------------------------
+
+void MainWindow::onRoomMemberAway(const QString &memberId, const QString &name)
+{
+    for (RoomMemberInfo &member : mRoomMembers)
+        if (member.id == memberId)
+            member.away = true;
+    if (mRoomsPanel)
+        mRoomsPanel->setMembers(mRoomMembers, mRoomClient->selfId());
+    if (!name.isEmpty())
+        statusBar()->showMessage(
+                    tr("%1 lost connection — their seat is held for a while.")
+                    .arg(name), 5000);
+}
+
+void MainWindow::onRoomMemberBack(const QString &memberId, const QString &name)
+{
+    for (RoomMemberInfo &member : mRoomMembers)
+        if (member.id == memberId)
+            member.away = false;
+    if (mRoomsPanel)
+        mRoomsPanel->setMembers(mRoomMembers, mRoomClient->selfId());
+    if (!name.isEmpty())
+        statusBar()->showMessage(tr("%1 is back.").arg(name), 4000);
+}
+
+void MainWindow::onRoomReconnecting()
+{
+    if (mRoomsPanel)
+        mRoomsPanel->setReconnecting(true);
+    statusBar()->showMessage(
+                tr("Connection lost — trying to reconnect…"), 8000);
+}
+
+void MainWindow::onRoomResumed()
+{
+    if (mRoomsPanel)
+        mRoomsPanel->setReconnecting(false);
+    statusBar()->showMessage(
+                tr("Reconnected — you are back in the room."), 5000);
+    // Edits made while offline never reached the server: push our
+    // current document so everyone is in sync again.
+    if (mMyRoomEditor)
+        scheduleRoomSync(mRoomClient->selfId());
+}
+
+void MainWindow::onRoomResumeFailed(const QString &message)
+{
+    endRoom(message.isEmpty()
+            ? tr("Your seat in the room has expired. Please join again.")
+            : message);
+}
+
 void MainWindow::onRoomDocChanged(const QString &targetId, const RoomDoc &doc,
                                   const QString &byName)
 {
@@ -635,5 +710,9 @@ void MainWindow::onRoomError(const QString &message)
 
 void MainWindow::onRoomDisconnected()
 {
-    endRoom(tr("Disconnected from the room server — the room was closed."));
+    // RoomClient now emits this only when the session is really over
+    // (no seat to resume, or reconnecting gave up within the grace
+    // period) — transient drops are handled by the resume machinery.
+    endRoom(tr("Disconnected from the room server — could not reconnect, "
+               "so the room was closed."));
 }
