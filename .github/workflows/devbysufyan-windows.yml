@@ -128,10 +128,10 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0
-          name: Dev by Sufyan — Red Panda Edition (v1.0)
+          tag_name: v1.0.1
+          name: Dev by Sufyan — Red Panda Edition (v1.0.1)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.0.1)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 

@@ -8,7 +8,7 @@
 ; root (OutputDir below). All paths are relative to this script's folder.
 
 #define AppName "Dev by Sufyan"
-#define AppVersion "1.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Abu Sufyan"
 #define AppExeName "DevBySufyan.exe"
 
@@ -47,3 +47,9 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: deskto
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
+
+[Registry]
+; Red Panda checks this key (PORTABLE_CONFIG=registry) to decide it is an
+; installed, not portable, copy; without it the app tries to create a
+; "config" folder beside the exe and fails under Program Files.
+Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Uninstall\RedPanda-C++"; ValueType: string; ValueName: "InstallLocation"; ValueData: "{app}"; Flags: uninsdeletekey
