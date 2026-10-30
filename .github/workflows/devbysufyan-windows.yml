@@ -71,7 +71,8 @@ jobs:
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
             -DCMAKE_INSTALL_PREFIX="$DeployDir" `
-            -DCMAKE_PREFIX_PATH="$QtDir"
+            -DCMAKE_PREFIX_PATH="$QtDir" `
+            -DPORTABLE_CONFIG=non
           if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
 
           # Builds the default target set (RedPandaIDE -> DevBySufyan.exe
@@ -123,15 +124,15 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.0 release with the installer and the
+      # Publishes (or updates) the v1.0.2 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.0.1
-          name: Dev by Sufyan — Red Panda Edition (v1.0.1)
+          tag_name: v1.0.2
+          name: Dev by Sufyan — Red Panda Edition (v1.0.2)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.0.1)**
+            **Dev by Sufyan — Red Panda Edition (v1.0.2)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 

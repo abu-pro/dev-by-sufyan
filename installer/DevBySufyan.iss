@@ -8,7 +8,7 @@
 ; root (OutputDir below). All paths are relative to this script's folder.
 
 #define AppName "Dev by Sufyan"
-#define AppVersion "1.0.1"
+#define AppVersion "1.0.2"
 #define AppPublisher "Abu Sufyan"
 #define AppExeName "DevBySufyan.exe"
 
@@ -36,6 +36,13 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+
+[Dirs]
+; Belt-and-suspenders: even if anything ever writes config beside the exe,
+; the folder exists and standard users can write to it (Program Files is
+; otherwise read-only). The v1.0.2 build also uses PORTABLE_CONFIG=non,
+; so settings normally live in AppData.
+Name: "{app}\config"; Permissions: users-full
 
 [Files]
 Source: "..\deploy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
