@@ -1,0 +1,69 @@
+name: Dev by Sufyan — Android build
+
+# Builds the Android app (android/ in this repo) on a Linux runner and
+# attaches DevBySufyan.apk to the v1.1.0 GitHub Release, next to the
+# Windows setup produced by devbysufyan-windows.yml. Release assets must
+# be published from inside Actions (the connector cannot upload to
+# uploads.github.com), hence the softprops step at the end.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'android/**'
+      - '.github/workflows/devbysufyan-android.yml'
+
+jobs:
+  android-apk:
+    name: Android APK (Temurin 21 + Gradle 8.9)
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: android
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      # A fresh keystore per run: the APK is signed, just not with a
+      # long-lived private key (none is stored in this repo).
+      - name: Generate throwaway signing keystore
+        run: |
+          keytool -genkeypair -v -keystore "$RUNNER_TEMP/dbs.keystore" -alias dbs \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -storepass dbs-throwaway -keypass dbs-throwaway \
+            -dname "CN=Dev by Sufyan, O=Abu Sufyan"
+
+      - name: Build release APK
+        env:
+          DBS_KEYSTORE: ${{ runner.temp }}/dbs.keystore
+          DBS_KEYSTORE_PASS: dbs-throwaway
+          DBS_KEY_ALIAS: dbs
+          DBS_KEY_PASS: dbs-throwaway
+        run: gradle assembleRelease --console=plain
+
+      - name: Stage APK at repo root
+        run: cp app/build/outputs/apk/release/app-release.apk ../DevBySufyan.apk
+
+      # Adds DevBySufyan.apk to the existing v1.1.0 release (created by
+      # the Windows workflow); creates the release if it does not exist.
+      - name: Attach APK to release v1.1.0
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.1.0
+          name: Dev by Sufyan — Red Panda Edition (v1.1.0)
+          files: DevBySufyan.apk
