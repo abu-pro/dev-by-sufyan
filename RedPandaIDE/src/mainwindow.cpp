@@ -4074,6 +4074,14 @@ void MainWindow::onWatchViewContextMenu(const QPoint &pos)
 void MainWindow::onTableIssuesContextMenu(const QPoint &pos)
 {
     QMenu menu(this);
+    // Dev by Sufyan v1.4.0: explain the clicked error in simple words.
+    QModelIndex issueIndex = ui->tableIssues->indexAt(pos);
+    if (issueIndex.isValid()) {
+        QAction *explainAction = menu.addAction(tr("Explain in simple words"));
+        connect(explainAction, &QAction::triggered, this,
+                [this, issueIndex]() { dbsExplainIssueAt(issueIndex); });
+        menu.addSeparator();
+    }
     menu.addAction(mTableIssuesCopyAction);
     menu.addAction(mTableIssuesCopyAllAction);
     menu.addSeparator();
@@ -5343,6 +5351,45 @@ void MainWindow::onEditorContextMenu(const QPoint& pos)
             menu.addSeparator();
         }
 
+        // Dev by Sufyan v1.4.0: the room admin can point at a line of a
+        // member's code ("look at this line"). Admin only, and only on a
+        // member's editor — the server enforces the same rule.
+        if (mRoomClient && mRoomClient->isInRoom() && mRoomClient->isAdmin()) {
+            QString pointTargetId;
+            for (auto it = mMemberEditors.constBegin();
+                 it != mMemberEditors.constEnd(); ++it) {
+                if (it.value().data() == editor) {
+                    pointTargetId = it.key();
+                    break;
+                }
+            }
+            if (!pointTargetId.isEmpty()) {
+                // Use the position from getPositionOfMouse (caret
+                // convention, 1-based): getLineOfMouse's line runs one
+                // behind it in this editor, which would point at the
+                // line above the one the admin clicked.
+                int pointLine = (p.line >= 0 ? p.line : editor->caretXY().line);
+                QAction *pointAction = menu.addAction(tr("Point at this line (Room)"));
+                connect(pointAction, &QAction::triggered, this,
+                        [this, pointTargetId, pointLine]() {
+                    if (mRoomClient)
+                        mRoomClient->sendPointLine(pointTargetId, pointLine);
+                    if (Editor *ed = roomEditorForTarget(pointTargetId)) {
+                        ed->setPointedLine(pointLine);
+                        QPointer<Editor> guard(ed);
+                        QTimer::singleShot(10000, this, [guard]() {
+                            if (guard)
+                                guard->setPointedLine(-1);
+                        });
+                    }
+                    statusBar()->showMessage(
+                                tr("Pointed at line %1 — the member has been shown it.")
+                                .arg(pointLine + 1), 4000);
+                });
+                menu.addSeparator();
+            }
+        }
+
         menu.addAction(ui->actionOpen_Containing_Folder);
         menu.addAction(ui->actionOpen_Terminal);
         menu.addAction(ui->actionLocate_in_Files_View);
@@ -6026,6 +6073,7 @@ void MainWindow::showEvent(QShowEvent *)
     mFullInitialized = true;
     applySettings();
     setupRooms();
+    setupDbsFeatures();
     const UISettings& settings = pSettings->ui();
     ui->tabMessages->setCurrentIndex(settings.bottomPanelIndex());
     ui->tabExplorer->setCurrentIndex(settings.leftPanelIndex());
@@ -6598,6 +6646,9 @@ void MainWindow::on_tableIssues_doubleClicked(const QModelIndex &index)
         return;
 
     mEditorManager->activeEditorAndSetCaret(editor,QSynedit::CharPos{issue->column,issue->line});
+    // Dev by Sufyan v1.4.0: a double-click also explains the message in
+    // simple words (modeless, so the jump stays usable).
+    dbsExplainIssueAt(index);
 }
 
 void MainWindow::on_actionEncode_in_ANSI_triggered()

@@ -186,6 +186,16 @@ void MainWindow::setupRooms()
     });
     roomsMenu->addAction(tr("Leave Room"), this, &MainWindow::onRoomLeaveRequested);
     roomsMenu->addSeparator();
+    // v1.4.0: admin runs everyone's code on one input and compares the
+    // outputs; Side by Side puts a member's live code next to your own.
+    QAction *runAllAction = roomsMenu->addAction(tr("Run All && Compare (Admin)"));
+    connect(runAllAction, &QAction::triggered,
+            this, &MainWindow::dbsRunAllCompare);
+    mSideBySideAction = roomsMenu->addAction(tr("Side by Side"));
+    mSideBySideAction->setCheckable(true);
+    connect(mSideBySideAction, &QAction::triggered,
+            this, &MainWindow::toggleSideBySide);
+    roomsMenu->addSeparator();
     roomsMenu->addAction(mRoomsDock->toggleViewAction());
     ui->menubar->insertMenu(ui->menuHelp->menuAction(), roomsMenu);
 
@@ -243,6 +253,26 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomMemberTyping);
     connect(mRoomClient, &RoomClient::memberRestricted,
             this, &MainWindow::onRoomMemberRestricted);
+    // v1.4.0: live cursors + admin line pointing.
+    connect(mRoomClient, &RoomClient::memberCursor,
+            this, &MainWindow::onRoomMemberCursor);
+    connect(mRoomClient, &RoomClient::linePointed,
+            this, &MainWindow::onRoomLinePointed);
+    mRoomCursorThrottle = new QTimer(this);
+    mRoomCursorThrottle->setSingleShot(true);
+    mRoomCursorThrottle->setInterval(200);
+    connect(mRoomCursorThrottle, &QTimer::timeout, this, [this]() {
+        if (!mRoomClient || !mRoomClient->isInRoom())
+            return;
+        if (mRoomCursorPendLine >= 0
+                && (mRoomCursorPendLine != mRoomCursorLastLine
+                    || mRoomCursorPendCol != mRoomCursorLastCol)) {
+            mRoomCursorLastLine = mRoomCursorPendLine;
+            mRoomCursorLastCol = mRoomCursorPendCol;
+            mRoomClient->sendCursor(mRoomCursorPendLine, mRoomCursorPendCol);
+            mRoomCursorThrottle->start();
+        }
+    });
     connect(mRoomClient, &RoomClient::kicked,
             this, &MainWindow::onRoomKicked);
     connect(mRoomClient, &RoomClient::roomClosed,
@@ -414,7 +444,7 @@ void MainWindow::setupWelcomePage()
     // permanent "Home" tab of the editor area (see ensureHomeTab()).
     // The approved full-bleed anime design is unchanged.
     mWelcomePage = new WelcomePage(this);
-    mWelcomePage->setVersionText(tr("Version 1.3.2"));
+    mWelcomePage->setVersionText(tr("Version 1.4.0"));
     auto shortcutOf = [](QAction *action) {
         return action ? action->shortcut().toString() : QString();
     };
@@ -577,6 +607,15 @@ void MainWindow::watchRoomEditor(Editor *editor)
             }
         }
     });
+    // v1.4.0: my caret in my room editor is shared with the room
+    // (throttled in maybeSendRoomCursor). Only my own editor sends —
+    // every member's client speaks for its own caret.
+    connect(editor, &QSynedit::QSynEdit::statusChanged, this,
+            [this, editor](QSynedit::StatusChanges changes) {
+        if (changes.testFlag(QSynedit::StatusChange::CaretX)
+                || changes.testFlag(QSynedit::StatusChange::CaretY))
+            maybeSendRoomCursor(editor);
+    });
     connect(editor, &QObject::destroyed, this, [this, editor]() {
         mRoomWatchedEditors.remove(editor);
         mRoomApplyingRemote.remove(editor);
@@ -672,6 +711,16 @@ void MainWindow::endRoom(const QString &message)
     }
     mRoomSyncTimers.clear();
     mRoomMembers.clear();
+    // v1.4.0: room presence state dies with the room.
+    if (mMyRoomEditor) {
+        mMyRoomEditor->setRoomCursorLine(-1, QColor(), QString());
+        mMyRoomEditor->setPointedLine(-1);
+    }
+    mSideBySideMemberId.clear();
+    if (mSideBySideAction)
+        mSideBySideAction->setChecked(false);
+    mRoomCursorLastLine = mRoomCursorLastCol = -1;
+    mRoomCursorPendLine = mRoomCursorPendCol = -1;
     mMyRoomEditor = nullptr;
     if (!mRoomBackingDir.isEmpty()) {
         QDir{mRoomBackingDir}.removeRecursively();
@@ -982,6 +1031,12 @@ void MainWindow::onRoomMemberLeft(const QString &memberId, const QString &name)
         mMemberEditors.remove(memberId);
         mEditorManager->forceCloseEditor(editor);
     }
+    // v1.4.0: if the side-by-side member left, the pairing is over.
+    if (mSideBySideMemberId == memberId) {
+        mSideBySideMemberId.clear();
+        if (mSideBySideAction)
+            mSideBySideAction->setChecked(false);
+    }
     mRoomsPanel->setMembers(mRoomMembers, mRoomClient->selfId());
     if (!name.isEmpty())
         statusBar()->showMessage(tr("%1 left the room.").arg(name), 4000);
@@ -1097,6 +1152,146 @@ void MainWindow::onRoomError(const QString &message)
     } else if (mRoomsPanel) {
         mRoomsPanel->setNotInRoom(message);
     }
+}
+
+// ---------------------------------------------------------------------------
+// v1.4.0: live cursors, admin line pointing, side-by-side
+// ---------------------------------------------------------------------------
+
+void MainWindow::maybeSendRoomCursor(Editor *editor)
+{
+    if (!editor || editor != mMyRoomEditor.data())
+        return;
+    if (!mRoomClient || !mRoomClient->isInRoom())
+        return;
+    QSynedit::CharPos caret = editor->caretXY();
+    mRoomCursorPendLine = caret.line;
+    mRoomCursorPendCol = caret.ch;
+    if (mRoomCursorThrottle && !mRoomCursorThrottle->isActive()) {
+        if (mRoomCursorPendLine != mRoomCursorLastLine
+                || mRoomCursorPendCol != mRoomCursorLastCol) {
+            mRoomCursorLastLine = mRoomCursorPendLine;
+            mRoomCursorLastCol = mRoomCursorPendCol;
+            mRoomClient->sendCursor(mRoomCursorPendLine, mRoomCursorPendCol);
+        }
+        mRoomCursorThrottle->start();
+    }
+}
+
+void MainWindow::onRoomMemberCursor(const QString &memberId, int line, int col)
+{
+    Q_UNUSED(col);
+    if (!mRoomClient || memberId == mRoomClient->selfId())
+        return;
+    Editor *editor = roomEditorForTarget(memberId);
+    if (!editor)
+        return;
+    const RoomMemberInfo *member = roomMember(memberId);
+    editor->setRoomCursorLine(line, RoomsPanel::memberColor(memberId),
+                              member ? member->name : QString());
+}
+
+void MainWindow::onRoomLinePointed(const QString &byId,
+                                   const QString &targetId, int line)
+{
+    const RoomMemberInfo *by = roomMember(byId);
+    const RoomMemberInfo *target = roomMember(targetId);
+    QString byName = by ? by->name : tr("The admin");
+    QString targetName = target ? target->name : tr("a member");
+    if (Editor *editor = roomEditorForTarget(targetId)) {
+        editor->setPointedLine(line);
+        QPointer<Editor> guard(editor);
+        QTimer::singleShot(10000, this, [guard]() {
+            if (guard)
+                guard->setPointedLine(-1);
+        });
+    }
+    if (mRoomClient && targetId == mRoomClient->selfId()) {
+        // It is MY code being pointed at: bring the line to me.
+        if (Editor *editor = roomEditorForTarget(targetId)) {
+            mEditorManager->activeEditor(editor, false);
+            if (line >= 0 && line < editor->lineCount())
+                editor->setCaretXYCentered({1, line});
+        }
+        statusBar()->showMessage(
+                    tr("%1 pointed at line %2 in your code — look there.")
+                    .arg(byName).arg(line + 1), 10000);
+        if (mRoomsPanel)
+            mRoomsPanel->showMessage(
+                        tr("%1 pointed at line %2 in your code.")
+                        .arg(byName).arg(line + 1));
+    } else {
+        statusBar()->showMessage(
+                    tr("%1 pointed at line %2 in %3's code.")
+                    .arg(byName).arg(line + 1).arg(targetName), 8000);
+    }
+}
+
+void MainWindow::toggleSideBySide()
+{
+    auto uncheck = [this]() {
+        if (mSideBySideAction)
+            mSideBySideAction->setChecked(false);
+    };
+    if (!mRoomClient || !mRoomClient->isInRoom()) {
+        uncheck();
+        statusBar()->showMessage(tr("Join a room first — Side by Side "
+                                    "shows a member's code next to yours."), 5000);
+        return;
+    }
+    bool turningOn = mSideBySideAction && mSideBySideAction->isChecked();
+    if (!turningOn) {
+        // Restore: move the member editor back to the main pane.
+        if (!mSideBySideMemberId.isEmpty()) {
+            if (Editor *editor = roomEditorForTarget(mSideBySideMemberId)) {
+                if (mEditorManager->findPageControlForEditor(editor)
+                        == ui->EditorTabsRight)
+                    mEditorManager->swapEditor(editor);
+            }
+            mSideBySideMemberId.clear();
+        }
+        return;
+    }
+    // Whose code goes on the side? The member selected in the panel,
+    // else the first other member.
+    QString targetId = mRoomsPanel ? mRoomsPanel->selectedMemberId() : QString();
+    if (targetId.isEmpty() || targetId == mRoomClient->selfId()) {
+        targetId.clear();
+        for (const RoomMemberInfo &member : mRoomMembers)
+            if (member.id != mRoomClient->selfId()) {
+                targetId = member.id;
+                break;
+            }
+    }
+    if (targetId.isEmpty()) {
+        uncheck();
+        statusBar()->showMessage(tr("No other member in the room yet."), 5000);
+        return;
+    }
+    // Note: mMyRoomEditor can be null — since v1.3.2 the common flow is
+    // creating/joining a room straight from the Home tab, with no file
+    // of your own bound as your room code. Side by Side still makes
+    // sense then: the member's code goes to the side pane and the main
+    // pane keeps whatever it shows (Home or your file).
+    if (!roomEditorForTarget(targetId))
+        onRoomOpenMemberRequested(targetId);
+    Editor *memberEditor = roomEditorForTarget(targetId);
+    if (!memberEditor) {
+        uncheck();
+        return;
+    }
+    QTabWidget *memberPane = mEditorManager->findPageControlForEditor(memberEditor);
+    if (memberPane == ui->EditorTabsLeft)
+        mEditorManager->swapEditor(memberEditor);
+    mSideBySideMemberId = targetId;
+    // Keep my own editor in front on my side when I have one; the
+    // member's stays visible in the other pane.
+    if (mMyRoomEditor)
+        mEditorManager->activeEditor(mMyRoomEditor.data(), true);
+    const RoomMemberInfo *member = roomMember(targetId);
+    statusBar()->showMessage(
+                tr("Side by Side: your code next to %1's live code.")
+                .arg(member ? member->name : targetId), 5000);
 }
 
 void MainWindow::onRoomDisconnected()

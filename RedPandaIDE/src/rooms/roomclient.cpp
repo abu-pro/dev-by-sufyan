@@ -277,6 +277,28 @@ void RoomClient::setMemberRestricted(const QString &targetId, bool restricted)
     sendJson(object);
 }
 
+void RoomClient::sendCursor(int line, int col)
+{
+    if (!mInRoom)
+        return;
+    QJsonObject object;
+    object["type"] = "cursor";
+    object["line"] = line;
+    object["col"] = col;
+    sendJson(object);
+}
+
+void RoomClient::sendPointLine(const QString &targetId, int line)
+{
+    if (!mInRoom)
+        return;
+    QJsonObject object;
+    object["type"] = "point_line";
+    object["targetId"] = targetId;
+    object["line"] = line;
+    sendJson(object);
+}
+
 void RoomClient::leave()
 {
     mLeaving = true;
@@ -510,6 +532,14 @@ void RoomClient::onTextMessageReceived(const QString &message)
     } else if (type == "member_typing") {
         emit memberTyping(object.value("fromId").toString(),
                           object.value("fromName").toString());
+    } else if (type == "member_cursor") {
+        emit memberCursor(object.value("id").toString(),
+                          object.value("line").toInt(),
+                          object.value("col").toInt());
+    } else if (type == "line_pointed") {
+        emit linePointed(object.value("by").toString(),
+                         object.value("targetId").toString(),
+                         object.value("line").toInt());
     } else if (type == "member_restricted") {
         emit memberRestricted(object.value("targetId").toString(),
                               object.value("restricted").toBool(false));

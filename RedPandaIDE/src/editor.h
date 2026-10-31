@@ -200,6 +200,12 @@ public:
     void clearBookmarks();
     void removeActiveBreakpoint();
     void setActiveBreakpoint(int Line);
+    // Dev by Sufyan v1.4.0 — Rooms presence: the line another member's
+    // caret is on (member-coloured highlight + name flag), and a line
+    // the room admin pointed at (strong amber highlight). Line numbers
+    // are 1-based; 0 clears.
+    void setRoomCursorLine(int line, const QColor &color, const QString &name);
+    void setPointedLine(int line);
     QString getPreviousWordAtPositionForSuggestion(const QSynedit::CharPos& p,
                                                    QSynedit::TokenType &tokenType);
     QString getPreviousWordAtPositionForCompleteFunctionDefinition(const QSynedit::CharPos& p) const;
@@ -467,6 +473,11 @@ private:
     QSet<int> mBreakpointLines;
     QSet<int> mBookmarkLines;
     int mActiveBreakpointLine;
+    // Dev by Sufyan v1.4.0 — Rooms presence (see setRoomCursorLine).
+    int mRoomCursorLine = -1;
+    QColor mRoomCursorColor;
+    QString mRoomCursorName;
+    int mPointedLine = -1;
     PCppParser mParser;
     CodeCompletionPopup *mCompletionPopup;
     HeaderCompletionPopup *mHeaderCompletionPopup;
@@ -527,6 +538,7 @@ private:
     // SynEdit interface
 protected:
     void onGutterPaint(QPainter &painter, int aLine, int X, int Y) override;
+    void paintEvent(QPaintEvent *event) override;
     void onGetEditingAreas(int Line, QSynedit::EditingAreaList &areaList) override;
     bool onGetSpecialLineColors(int Line, QColor &foreground, QColor &backgroundColor) override;
     void onPreparePaintHighlightToken(int line, int aChar, const QString &token, QSynedit::PTokenAttribute attr, QSynedit::FontStyles &style, QColor &foreground, QColor &background) override;

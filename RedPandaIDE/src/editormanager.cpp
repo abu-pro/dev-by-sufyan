@@ -992,7 +992,12 @@ void EditorManager::updateLayout()
     // content that forces the two-pane layout.
     if (countEditors(mRightPageWidget) == 0)
         showLayout(LayoutShowType::lstLeft);
-    else if (countEditors(mLeftPageWidget) ==0)
+    // Dev by Sufyan v1.4.0: the left pane is only "empty" when it has no
+    // pages at all. Since v1.3.2 the Home tab is a real permanent page
+    // there, so a left pane holding just Home still counts as content —
+    // otherwise Side by Side (member editor swapped right) would hide
+    // the Home tab entirely.
+    else if (mLeftPageWidget->count() ==0)
         showLayout(LayoutShowType::lstRight);
     else
         showLayout(LayoutShowType::lstBoth);

@@ -85,6 +85,12 @@ public:
     // members' code (or lift the restriction). The server enforces it;
     // the member_restricted broadcast confirms the change to everyone.
     void setMemberRestricted(const QString &targetId, bool restricted);
+    // v1.4.0: live cursor — share my caret position with the room
+    // (line/column are 1-based editor coordinates). Callers throttle.
+    void sendCursor(int line, int col);
+    // v1.4.0: admin-only — point at one line of a member's code. The
+    // server ignores this from non-admins and broadcasts line_pointed.
+    void sendPointLine(const QString &targetId, int line);
     // Rooms v2 chat: the server broadcasts the message back to everyone in
     // the room (including us), so there is no local echo here.
     void sendChat(const QString &text);
@@ -124,6 +130,10 @@ signals:
                       const QString &text, qint64 ts);
     void memberTyping(const QString &fromId, const QString &fromName);
     void memberRestricted(const QString &targetId, bool restricted);
+    // v1.4.0: another member's caret moved (1-based line/col).
+    void memberCursor(const QString &memberId, int line, int col);
+    // v1.4.0: the admin pointed at a line of targetId's code.
+    void linePointed(const QString &byId, const QString &targetId, int line);
     void kicked(const QString &message);
     void roomClosed(const QString &message);
     void errorReceived(const QString &message);

@@ -57,6 +57,9 @@ public:
     explicit WelcomePage(QWidget *parent = nullptr);
 
     void setVersionText(const QString &text);
+    // v1.4.0: a one-line "update available" notice under the version
+    // text (empty text hides it). The text may contain an HTML link.
+    void setUpdateNotice(const QString &html);
     void setHotkeysText(const QString &text);
     // v1.3.2: the Home tab carries a Recent Files list (hidden while
     // empty) and the Continue Coding tile only exists when editors do.
@@ -95,6 +98,7 @@ private:
     QLabel *mLogoLabel = nullptr;
     QLabel *mTitleLabel = nullptr;
     QLabel *mVersionLabel = nullptr;
+    QLabel *mUpdateLabel = nullptr;
     QLabel *mHotkeysLabel = nullptr;
     QLabel *mRecentTitle = nullptr;
     QListWidget *mRecentList = nullptr;

@@ -363,6 +363,21 @@ private:
                             const QString &text, qint64 ts);
     void onRoomMemberTyping(const QString &fromId, const QString &fromName);
     void onRoomSaveCodeRequested();
+    // v1.4.0: live cursors, admin line point, side-by-side
+    void onRoomMemberCursor(const QString &memberId, int line, int col);
+    void onRoomLinePointed(const QString &byId, const QString &targetId, int line);
+    void maybeSendRoomCursor(Editor *editor);
+    void toggleSideBySide();
+    // v1.4.0: feature pack — implemented in rooms/dbsfeatures.cpp
+    void setupDbsFeatures();
+    void dbsSaveTick();
+    void dbsCheckRecovery();
+    void dbsExplainIssueAt(const QModelIndex &index);
+    void dbsSaveCodePhoto();
+    void dbsSaveCodePhotoTo(Editor *editor, int scale, const QString &path);
+    void dbsShowFlowchart();
+    void dbsRunAllCompare();
+    void dbsCheckForUpdates(bool manual);
     // v1.3.0: Messages popup, member restriction, welcome page
     void showRoomChatWindow();
     void onRoomRestrictRequested(const QString &memberId, bool restricted);
@@ -1001,6 +1016,16 @@ private:
     // noteCommandLineFiles() and calls finishStartupWithHome() after the
     // session restore had its chance to load.
     bool mCommandLineFilesPresent = false;
+    // v1.4.0: feature-pack state
+    QTimer *mDbsSaveTimer = nullptr;
+    QTimer *mRoomCursorThrottle = nullptr;
+    int mRoomCursorLastLine = -1;
+    int mRoomCursorLastCol = -1;
+    int mRoomCursorPendLine = -1;
+    int mRoomCursorPendCol = -1;
+    QAction *mSideBySideAction = nullptr;
+    QString mSideBySideMemberId;
+    bool mUpdateNoticeShown = false;
     QLabel *mFileInfoStatus;
     LabelWithMenu *mFileEncodingStatus;
     QLabel *mFileModeStatus;

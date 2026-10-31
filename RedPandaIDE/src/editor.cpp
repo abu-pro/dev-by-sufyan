@@ -1113,8 +1113,88 @@ void Editor::onGetEditingAreas(int line, QSynedit::EditingAreaList &areaList)
     }
 }
 
+void Editor::setRoomCursorLine(int line, const QColor &color, const QString &name)
+{
+    if (mRoomCursorLine == line && mRoomCursorColor == color
+            && mRoomCursorName == name)
+        return;
+    mRoomCursorLine = line;
+    mRoomCursorColor = color;
+    mRoomCursorName = name;
+    invalidate();
+}
+
+void Editor::setPointedLine(int line)
+{
+    if (mPointedLine == line)
+        return;
+    mPointedLine = line;
+    invalidate();
+}
+
+void Editor::paintEvent(QPaintEvent *event)
+{
+    QSynedit::QSynEdit::paintEvent(event);
+    // Dev by Sufyan v1.4.0 — name flag on the room member's caret line:
+    // a small rounded tag in their colour, drawn over the start of the
+    // line's text area. It must be drawn here, after the base paint:
+    // QSynEdit's own onPaint hook runs BEFORE the cached content image
+    // is blitted over the widget, which would paint the tag away.
+    // Nothing is drawn when the line is off screen.
+    if (mRoomCursorLine < 0 || mRoomCursorName.isEmpty()
+            || !mRoomCursorColor.isValid())
+        return;
+    // QSynEdit paints its content on the scroll area's viewport, so the
+    // flag must be painted there too — painting on the scroll area
+    // itself would hide it under the viewport.
+    QPainter painter(viewport());
+    QSynedit::DisplayCoord coord = bufferToDisplayPos({1, mRoomCursorLine});
+    QPoint top = displayCoordToPixels(coord);
+    int y = top.y();
+    if (y < -textHeight() || y > viewport()->height())
+        return;
+    QFont flagFont = font();
+    flagFont.setPointSizeF(std::max(7.0, flagFont.pointSizeF() - 1.5));
+    QFontMetrics fm(flagFont);
+    QString text = mRoomCursorName;
+    int w = fm.horizontalAdvance(text) + 12;
+    int h = std::max(14, textHeight() - 4);
+    QRect rect(gutterWidth() + 6, y + 2, w, h);
+    if (rect.right() > viewport()->width() - 4)
+        return;
+    painter.save();
+    painter.setFont(flagFont);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(Qt::NoPen);
+    painter.setBrush(mRoomCursorColor);
+    painter.setOpacity(0.92);
+    painter.drawRoundedRect(rect, 4, 4);
+    painter.setOpacity(1.0);
+    painter.setPen(QColor(255, 255, 255));
+    painter.drawText(rect, Qt::AlignCenter, text);
+    painter.restore();
+}
+
 bool Editor::onGetSpecialLineColors(int Line, QColor &foreground, QColor &backgroundColor)
 {
+    // Dev by Sufyan v1.4.0 — room highlights win over breakpoints: an
+    // admin point must be unmissable, and a member's caret line shows in
+    // their colour (blended toward the editor background so the code
+    // stays readable).
+    if (Line == mPointedLine && mPointedLine >= 0) {
+        foreground = QColor(0, 0, 0);
+        backgroundColor = QColor(255, 176, 0);
+        return true;
+    }
+    if (Line == mRoomCursorLine && mRoomCursorLine >= 0
+            && mRoomCursorColor.isValid()) {
+        QColor base = mRoomCursorColor;
+        backgroundColor = QColor(
+                    (base.red() + 40) / 2,
+                    (base.green() + 40) / 2,
+                    (base.blue() + 48) / 2);
+        return true;
+    }
     if (Line == mActiveBreakpointLine &&
         mActiveBreakpointBackgroundColor.isValid()) {
         if (mActiveBreakpointForegroundColor.isValid())

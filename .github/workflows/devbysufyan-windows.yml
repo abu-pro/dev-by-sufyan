@@ -163,22 +163,28 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.3.2 release with the installer and the
+      # Publishes (or updates) the v1.4.0 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.3.2
-          name: Dev by Sufyan — Red Panda Edition (v1.3.2)
+          tag_name: v1.4.0
+          name: Dev by Sufyan — Red Panda Edition (v1.4.0)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.3.2)**
+            **Dev by Sufyan — Red Panda Edition (v1.4.0)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.3.2 — the real Home screen release:
-            - **Home is now a real tab, like Word's Start screen** — the welcome page is a permanent first tab in the editor area, not an overlay. It opens in front at startup, your restored files stay as tabs next to it, and there is NO extra blank file created behind it anymore. New Document from Home makes exactly one new document
-            - **Recent Files on Home** — your recent files are listed on the Home page; click one to open it. The Continue Coding tile appears only while files are open, and closing every file brings you back to Home
-            - **Rooms spacing fixed** — the Rooms menu and the Rooms panel rows are compact now: neat single lines instead of widely spaced entries
+            New in v1.4.0 — the big features release (nine new features):
+            - **Auto-save + crash recovery** — open files save themselves every 30 seconds, and drafts of unsaved work (even untitled files) are kept; after a crash or power cut the app offers to restore them. Can be turned off in Settings
+            - **Compiler errors in easy words** — double-click a compiler error (or right-click it) and choose "Explain in simple words": what it means and how to fix it, in plain English, built in and offline
+            - **Update check** — the app checks GitHub for a newer version at startup and tells you on the Home screen; Help → Check for Updates checks any time
+            - **Live cursors in Rooms** — watch a member's caret move through their code: their line lights up in their colour with their name on it
+            - **Admin line pointing** — in a room, the admin right-clicks a line of a member's code and picks "Point at this line (Room)": the member's screen jumps to that line, highlighted
+            - **Side by Side** — Rooms → Side by Side puts the selected member's live code next to yours (Home or your file stays on your side)
+            - **Run All & Compare (admin)** — run every member's program on one shared input and compare the outputs in one table, all on the admin's PC
+            - **Code photo** — save the current file as a pretty PNG picture of your code (your theme and font, 1x/2x) for sharing
+            - **Flowchart** — turn simple C++ code into a flowchart picture (sequence, input/output, if/else, loops, return) and save it as PNG
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed

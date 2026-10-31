@@ -113,6 +113,13 @@ WelcomePage::WelcomePage(QWidget *parent) :
     mVersionLabel->setStyleSheet("font-size: 10pt; color: #aeb4c2;");
     mVersionLabel->setAttribute(Qt::WA_TranslucentBackground);
     titleCol->addWidget(mVersionLabel);
+    // v1.4.0: update notice line (hidden until an update is found).
+    mUpdateLabel = new QLabel{mContent};
+    mUpdateLabel->setStyleSheet("font-size: 10pt; color: #ffd23f;");
+    mUpdateLabel->setAttribute(Qt::WA_TranslucentBackground);
+    mUpdateLabel->setOpenExternalLinks(true);
+    mUpdateLabel->hide();
+    titleCol->addWidget(mUpdateLabel);
     titleRow->addLayout(titleCol);
     titleRow->addStretch();
     col->addLayout(titleRow);
@@ -221,6 +228,14 @@ WelcomePage::WelcomePage(QWidget *parent) :
 void WelcomePage::setVersionText(const QString &text)
 {
     mVersionLabel->setText(text);
+}
+
+void WelcomePage::setUpdateNotice(const QString &html)
+{
+    if (!mUpdateLabel)
+        return;
+    mUpdateLabel->setText(html);
+    mUpdateLabel->setVisible(!html.isEmpty());
 }
 
 void WelcomePage::setHotkeysText(const QString &text)

@@ -8,7 +8,7 @@
 ; root (OutputDir below). All paths are relative to this script's folder.
 
 #define AppName "Dev by Sufyan"
-#define AppVersion "1.3.2"
+#define AppVersion "1.4.0"
 #define AppPublisher "Abu Sufyan"
 #define AppExeName "DevBySufyan.exe"
 

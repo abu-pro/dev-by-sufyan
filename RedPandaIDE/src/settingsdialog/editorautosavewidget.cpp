@@ -19,7 +19,10 @@
 #include "../settings.h"
 #include "../mainwindow.h"
 
+#include <QCheckBox>
 #include <QDateTime>
+#include <QSettings>
+#include <QVBoxLayout>
 
 EditorAutoSaveWidget::EditorAutoSaveWidget(const QString& name, const QString& group,IconsManager *iconsManager,
                                                              QWidget *parent) :
@@ -27,6 +30,21 @@ EditorAutoSaveWidget::EditorAutoSaveWidget(const QString& name, const QString& g
     ui(new Ui::EditorAutoSaveWidget)
 {
     ui->setupUi(this);
+    // Dev by Sufyan v1.4.0: toggle for the quick auto-save (30 s) and
+    // crash-recovery drafts. It writes its QSettings key immediately,
+    // so it needs no doLoad/doSave handling here.
+    auto *quickSave = new QCheckBox(
+                tr("Dev by Sufyan: quick auto-save and crash recovery — "
+                   "save open files every 30 seconds and keep drafts of "
+                   "unsaved work so it can be restored after a crash"), this);
+    quickSave->setChecked(QSettings().value("dbs/quickSaveEnabled", true).toBool());
+    connect(quickSave, &QCheckBox::toggled, this, [](bool on) {
+        QSettings settings;
+        settings.setValue("dbs/quickSaveEnabled", on);
+        settings.sync();
+    });
+    if (auto *box = qobject_cast<QVBoxLayout *>(layout()))
+        box->addWidget(quickSave);
 }
 
 EditorAutoSaveWidget::~EditorAutoSaveWidget()

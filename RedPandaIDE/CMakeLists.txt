@@ -12,6 +12,7 @@ set_target_properties(RedPandaIDE PROPERTIES
 
 target_qt_plain_cpp(RedPandaIDE
     src/rooms/mainwindow_rooms
+    src/rooms/dbsfeatures
     src/autolinkmanager
     src/colorscheme
     src/customfileiconprovider
