@@ -90,8 +90,10 @@ public:
     void sendChat(const QString &text);
     // Rooms v2 typing indicator; the server throttles the relay (2 s).
     void sendTyping();
-    // Deliberate exit: tells the server (leave_room) so the seat is freed
-    // at once, then closes the connection and forgets the room.
+    // Deliberate exit: tells the server (leave_room) — peers see the
+    // leave at once, but since v1.3.1 the server retains the seat and
+    // the saved token survives, so rejoining the same code restores
+    // this identity. Then closes the connection and forgets the room.
     void leave();
     // Abruptly drops the socket without any protocol goodbye, simulating
     // a network failure. In a room, the reconnect/resume machinery takes
@@ -133,6 +135,10 @@ signals:
     void resumed();
     // The server refused the resume (seat expired): the session is over.
     void resumeFailed(const QString &message);
+    // v1.3.1: a manual join restored a retained seat (the server's
+    // room_joined carried resumed:true). Emitted after roomJoined so
+    // the panel can add its "Welcome back" note.
+    void seatRestored();
     // The connection ended for good while connecting or in a room,
     // without a protocol-level goodbye and with no resume possible.
     void disconnected();
@@ -149,6 +155,9 @@ private:
     void sendJson(const QJsonObject &object);
     void resetState();
     void scheduleReconnect();
+    // v1.3.1 seat persistence (QSettings rooms/lastCode + lastToken)
+    void saveSeat();
+    void clearSavedSeat();
 
     QWebSocket *mSocket;
     QTimer *mReconnectTimer;
@@ -173,6 +182,8 @@ private:
     QString mPendingName;
     QString mPendingCode;
     RoomDoc mPendingDoc;
+    // v1.3.1: saved seat token offered with a join for the same code
+    QString mPendingJoinToken;
 };
 
 #endif // ROOMS_ROOMCLIENT_H

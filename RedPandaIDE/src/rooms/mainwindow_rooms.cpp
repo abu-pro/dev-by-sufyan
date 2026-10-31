@@ -141,6 +141,9 @@ void MainWindow::setupRooms()
     // Rooms menu: chat + every panel tab reachable from the top menu,
     // then the room actions (v1.3.0 restructure).
     QMenu *roomsMenu = new QMenu(tr("Rooms"), this);
+    // v1.3.1: the welcome/home page can be reopened at any time.
+    roomsMenu->addAction(tr("Home"), this, &MainWindow::showWelcomePage);
+    roomsMenu->addSeparator();
     roomsMenu->addAction(tr("Messages"), this, &MainWindow::showRoomChatWindow);
     roomsMenu->addSeparator();
     QAction *roomTabAction = roomsMenu->addAction(tr("Room"));
@@ -207,6 +210,13 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomReconnecting);
     connect(mRoomClient, &RoomClient::resumed,
             this, &MainWindow::onRoomResumed);
+    // v1.3.1: a manual rejoin restored the user's retained seat.
+    connect(mRoomClient, &RoomClient::seatRestored, this, [this]() {
+        if (mRoomsPanel && mRoomClient)
+            mRoomsPanel->showMessage(
+                tr("Welcome back! Your seat in room %1 was restored.")
+                    .arg(mRoomClient->roomCode()));
+    });
     connect(mRoomClient, &RoomClient::resumeFailed,
             this, &MainWindow::onRoomResumeFailed);
     connect(mRoomClient, &RoomClient::docChanged,
@@ -295,10 +305,32 @@ void MainWindow::onRoomMemberRestricted(const QString &targetId,
             : tr("%1 can edit other members' code again.").arg(name), 5000);
 }
 
+void MainWindow::noteCommandLineFiles(bool present)
+{
+    mCommandLineFilesPresent = present;
+}
+
+void MainWindow::showWelcomePage()
+{
+    // (Re)open the home page over the editor area, whatever is open.
+    mWelcomeStartupPending = true;
+    updateWelcomeVisibility();
+    if (mWelcomePage && mWelcomePage->isVisible())
+        mWelcomePage->setFocus();
+}
+
+void MainWindow::dismissWelcomePage()
+{
+    if (!mWelcomeStartupPending)
+        return;
+    mWelcomeStartupPending = false;
+    updateWelcomeVisibility();
+}
+
 void MainWindow::setupWelcomePage()
 {
     mWelcomePage = new WelcomePage(ui->splitterEditorPanel);
-    mWelcomePage->setVersionText(tr("Version 1.3.0"));
+    mWelcomePage->setVersionText(tr("Version 1.3.1"));
     auto shortcutOf = [](QAction *action) {
         return action ? action->shortcut().toString() : QString();
     };
@@ -307,25 +339,41 @@ void MainWindow::setupWelcomePage()
                 .arg(shortcutOf(ui->actionNew), shortcutOf(ui->actionOpen),
                      shortcutOf(ui->actionSave), shortcutOf(ui->actionCompile),
                      shortcutOf(ui->actionRun)));
+    connect(mWelcomePage, &WelcomePage::continueRequested,
+            this, &MainWindow::dismissWelcomePage);
     connect(mWelcomePage, &WelcomePage::newDocumentRequested,
             this, &MainWindow::onWelcomeNewDocument);
     connect(mWelcomePage, &WelcomePage::openDocumentRequested, this, [this]() {
+        dismissWelcomePage();
         ui->actionOpen->trigger();
     });
     connect(mWelcomePage, &WelcomePage::newProjectRequested, this, [this]() {
+        dismissWelcomePage();
         ui->actionNew_Project->trigger();
     });
     connect(mWelcomePage, &WelcomePage::roomsRequested, this, [this]() {
+        dismissWelcomePage();
         mRoomsDock->show();
         mRoomsDock->raise();
     });
     connect(mWelcomePage, &WelcomePage::themeRequested, this, [this]() {
+        dismissWelcomePage();
         changeOptions(SettingsDialog::tr("Appearance"),
                       SettingsDialog::tr("Environment"));
     });
     connect(mWelcomePage, &WelcomePage::fontRequested, this, [this]() {
+        dismissWelcomePage();
         changeOptions(SettingsDialog::tr("Font"),
                       SettingsDialog::tr("Editor"));
+    });
+    // Opening an editor through ANY path (menus, explorer, ...) leaves
+    // the startup home page — but only once startup has settled: the
+    // session restore and the forced blank editor also fire this signal
+    // (synchronously, before the event loop starts) and must NOT
+    // dismiss the page they are restored underneath.
+    connect(mEditorManager, &EditorManager::editorOpenned, this, [this]() {
+        if (mWelcomeStartupSettled)
+            dismissWelcomePage();
     });
     mWelcomePage->hide();
     mWelcomeTimer = new QTimer(this);
@@ -333,15 +381,27 @@ void MainWindow::setupWelcomePage()
     connect(mWelcomeTimer, &QTimer::timeout,
             this, &MainWindow::updateWelcomeVisibility);
     mWelcomeTimer->start();
-    QTimer::singleShot(0, this, &MainWindow::updateWelcomeVisibility);
+    // Startup is settled once the event loop turns: by then main() has
+    // restored the last session / created the blank editor / opened any
+    // command-line files, all underneath the pending welcome page.
+    QTimer::singleShot(0, this, [this]() {
+        mWelcomeStartupSettled = true;
+        updateWelcomeVisibility();
+    });
 }
 
 void MainWindow::updateWelcomeVisibility()
 {
     if (!mWelcomePage || !mEditorManager)
         return;
-    if (mEditorManager->pageCount() == 0) {
-        // Nothing open: the welcome page covers the editor area.
+    // v1.3.1: the welcome page is the first thing seen at every normal
+    // startup (no command-line files): it stays pending over whatever
+    // session was restored until the user picks an action or opens an
+    // editor. It also returns whenever every editor is closed (the
+    // original v1.3.0 behaviour), and via Rooms > Home.
+    const bool show = (mWelcomeStartupPending && !mCommandLineFilesPresent)
+            || mEditorManager->pageCount() == 0;
+    if (show) {
         mWelcomePage->setGeometry(ui->splitterEditorPanel->rect());
         if (!mWelcomePage->isVisible())
             mWelcomePage->show();

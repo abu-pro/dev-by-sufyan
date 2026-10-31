@@ -421,6 +421,9 @@ int main(int argc, char *argv[])
 
         QStringList filesToOpen = app.arguments();
         filesToOpen.pop_front();
+        // v1.3.1: files on the command line suppress the startup
+        // welcome page; a restored session does not.
+        mainWindow.noteCommandLineFiles(!filesToOpen.isEmpty());
         if (!filesToOpen.isEmpty()) {
             QStringList absoluteFiles;
             //convert all relative path to absolute path

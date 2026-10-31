@@ -163,28 +163,26 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.3.0 release with the installer and the
+      # Publishes (or updates) the v1.3.1 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.3.0
-          name: Dev by Sufyan — Red Panda Edition (v1.3.0)
+          tag_name: v1.3.1
+          name: Dev by Sufyan — Red Panda Edition (v1.3.1)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.3.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.3.1)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.3.0 — the 10/10 polish release:
-            - **Welcome screen** — an anime-style start page with rotating artwork, quick tiles (New Document with save-first flow, Open, New Project, Rooms, Theme, Font) and the app's real hotkeys
-            - **Messages popup** — room chat now lives in its own window (Messages button in the Rooms panel, the Rooms menu and the toolbar), and it **opens by itself when someone messages you**, with an unread count on the buttons
-            - **Tabbed Rooms panel** — Room / Members / Settings tabs instead of one long panel; settings are visible read-only to members too
-            - **Per-member restrictions** — the admin can restrict a specific member from editing other people's code (enforced by the server, shown with a Restricted badge everywhere)
-            - **Icon fix** — shortcuts now read a dedicated `devbysufyan.ico` file, so the desktop shortcut shows the real logo instead of the old red-panda icon
+            New in v1.3.1 — the fixes release:
+            - **Welcome screen fixed** — it now ALWAYS opens first at startup (even when your last session restores files), and you can reopen it any time from **Rooms > Home**. New look: the rotating artwork fills the whole page, the buttons float on the picture as glass tiles, and the accent colour follows each wallpaper's theme
+            - **Room rejoin fixed** — leave a room and join the same code again within 30 minutes and you get YOUR seat back: same identity, admin role and code (works on PC and web). The room now only closes if the admin stays away the full 30 minutes
+            - **Logo corners fixed** — the </> logo is now truly transparent outside the red rounded square (desktop icon, installer, welcome page)
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed
-            - `DevBySufyan.apk` — the Android app (added by the Android build; signed with the project's fixed key, installs over v1.2.0)
+            - The Android app stays at v1.3.0 this round — get `DevBySufyan.apk` from the v1.3.0 release (it shares the same live rooms)
 
             Rooms: create or join a room with a 4-digit code and code together live — PC and phone share the same rooms. The admin can view and edit everyone's code; the admin's own code stays view-only for everyone else.
 

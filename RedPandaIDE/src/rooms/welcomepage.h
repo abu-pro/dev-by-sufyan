@@ -17,18 +17,28 @@
 #ifndef ROOMS_WELCOMEPAGE_H
 #define ROOMS_WELCOMEPAGE_H
 
+#include <QColor>
 #include <QPixmap>
 #include <QStringList>
 #include <QWidget>
 
 class QLabel;
 class QPropertyAnimation;
+class QPushButton;
 class QTimer;
 
-// WelcomePage is the Dev by Sufyan start page (v1.3.0), modeled on the
-// classic Dev-C++ 6.3 welcome screen: logo, WELCOME heading, version,
-// quick-action tiles and a hotkey list — plus a rotating anime artwork
-// panel. It is shown over the editor area while no editor is open.
+// WelcomePage is the Dev by Sufyan start page (v1.3.0, redesigned in
+// v1.3.1): the rotating anime artwork fills the WHOLE page as a
+// full-bleed background — cover-scaled but anchored on each artwork's
+// face focal point so the character stays in frame — and the title,
+// glassy action tiles and hotkey line float over it on the side
+// opposite the face. A soft dark gradient under the text zone keeps
+// the words readable without hiding the character.
+//
+// Every artwork carries its own accent colour (Sukuna red, Gojo icy
+// blue, Zenitsu lightning yellow, ...): the tile borders, the title
+// highlight and the hover glows morph to the accent of the artwork
+// currently on screen, animated together with the art crossfade.
 //
 // Artwork rotation: the built-in artworks ship in the Qt resources
 // (welcome-art-01.jpg .. welcome-art-NN.jpg: the approved generated
@@ -37,20 +47,24 @@ class QTimer;
 // executable or in the app data folder; they join the rotation
 // automatically. The panel advances to the next artwork on every
 // launch and crossfades every ~12 s while visible.
-//
-// Faces are never cropped or covered: the artwork is always fitted
-// WHOLE inside the panel (see artworkFramed); only a blurred,
-// darkened copy of the same image fills the leftover space.
 class WelcomePage : public QWidget
 {
     Q_OBJECT
+    Q_PROPERTY(qreal fadeProgress READ fadeProgress WRITE setFadeProgress)
+    Q_PROPERTY(QColor accentColor READ accentColor WRITE setAccentColor)
 public:
     explicit WelcomePage(QWidget *parent = nullptr);
 
     void setVersionText(const QString &text);
     void setHotkeysText(const QString &text);
 
+    qreal fadeProgress() const { return mFadeProgress; }
+    void setFadeProgress(qreal value);
+    QColor accentColor() const { return mAccent; }
+    void setAccentColor(const QColor &color);
+
 signals:
+    void continueRequested();
     void newDocumentRequested();
     void openDocumentRequested();
     void newProjectRequested();
@@ -59,6 +73,7 @@ signals:
     void fontRequested();
 
 protected:
+    void paintEvent(QPaintEvent *event) override;
     void showEvent(QShowEvent *event) override;
     void hideEvent(QHideEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
@@ -66,19 +81,33 @@ protected:
 private:
     void loadArtworks();
     void showArtwork(int index, bool fade);
-    QPixmap artworkFramed(int index) const;
+    void rebuildCoverCache();
+    QPixmap coverFor(const QPixmap &source, const QPointF &anchor) const;
+    void applyAccentStyles();
     void startEntranceAnimation();
 
-    QLabel *mArtLabel = nullptr;
+    QLabel *mLogoLabel = nullptr;
+    QLabel *mTitleLabel = nullptr;
     QLabel *mVersionLabel = nullptr;
     QLabel *mHotkeysLabel = nullptr;
+    QWidget *mContent = nullptr;
+    QList<QPushButton *> mTiles;
+    QWidgetList mAnimatables;
+
     QStringList mArtFiles; // resource paths (":/...") or disk paths
     int mArtIndex = 0;
+    QPixmap mCurrentSource;
+    QPixmap mPreviousSource;
+    QPixmap mCurrentCover;
+    QPixmap mPreviousCover;
+    QPointF mCurrentAnchor{0.5, 0.4};
+    QPointF mPreviousAnchor{0.5, 0.4};
+    bool mTextRight = false;
+    qreal mFadeProgress = 1.0;
+    QColor mAccent{224, 35, 35};
     QTimer *mRotateTimer = nullptr;
-    QPropertyAnimation *mFadeOut = nullptr;
-    QPropertyAnimation *mFadeIn = nullptr;
-    bool mFading = false;
-    QWidgetList mAnimatables;
+    QPropertyAnimation *mFadeAnim = nullptr;
+    QPropertyAnimation *mAccentAnim = nullptr;
 };
 
 #endif // ROOMS_WELCOMEPAGE_H

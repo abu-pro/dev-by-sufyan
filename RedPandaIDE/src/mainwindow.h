@@ -187,6 +187,9 @@ public:
     void updateTools();
 
     void openFiles(const QStringList& files);
+    // v1.3.1: main() reports whether files came from the command line;
+    // the startup welcome page is only suppressed in that case.
+    void noteCommandLineFiles(bool present);
 
     void newEditor(const QString& suffix="");
 
@@ -363,6 +366,8 @@ private:
     void updateChatUnreadBadge();
     void setupWelcomePage();
     void updateWelcomeVisibility();
+    void showWelcomePage();
+    void dismissWelcomePage();
     void onWelcomeNewDocument();
     void selectRoomsTab(int index);
     void buildContextMenus();
@@ -985,6 +990,12 @@ private:
     int mChatUnread = 0;
     WelcomePage *mWelcomePage = nullptr;
     QTimer *mWelcomeTimer = nullptr;
+    // Rooms v1.3.1: the welcome page is a startup-guaranteed presentation,
+    // not a side effect of "no editor open" (a startup editor always
+    // exists: restored session or the forced blank untitled file).
+    bool mWelcomeStartupPending = true;
+    bool mWelcomeStartupSettled = false;
+    bool mCommandLineFilesPresent = false;
     QLabel *mFileInfoStatus;
     LabelWithMenu *mFileEncodingStatus;
     QLabel *mFileModeStatus;

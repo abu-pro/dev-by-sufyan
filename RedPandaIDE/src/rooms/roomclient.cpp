@@ -23,6 +23,7 @@
 #include <QNetworkProxyFactory>
 #include <QNetworkProxyQuery>
 #include <QProcessEnvironment>
+#include <QSettings>
 #include <QTimer>
 #include <QWebSocket>
 
@@ -192,6 +193,15 @@ void RoomClient::joinRoom(const QString &name, const QString &code,
     mPendingName = name;
     mPendingCode = code;
     mPendingDoc = doc;
+    // v1.3.1 — if a previous visit left us a retained seat for this
+    // exact code, offer its token with the join: the server restores
+    // our old identity/role/doc instead of entering us as a new
+    // person. A token that matches nothing is a plain fresh join.
+    QSettings settings;
+    mPendingJoinToken =
+            settings.value("rooms/lastCode").toString() == code
+                ? settings.value("rooms/lastToken").toString()
+                : QString();
     openSocket();
     if (isConnected())
         onConnected();
@@ -270,8 +280,10 @@ void RoomClient::setMemberRestricted(const QString &targetId, bool restricted)
 void RoomClient::leave()
 {
     mLeaving = true;
-    // Deliberate exit: free the seat at once instead of parking it in
-    // the server's resume grace.
+    // Deliberate exit: peers see us leave at once, but since v1.3.1 the
+    // server RETAINS the seat for a while and our saved token
+    // (rooms/lastCode + rooms/lastToken) deliberately survives, so
+    // joining the same code again restores this identity and doc.
     if (mInRoom && isConnected()) {
         QJsonObject object;
         object["type"] = "leave_room";
@@ -288,6 +300,24 @@ void RoomClient::abortConnection()
 {
     if (mSocket->state() != QAbstractSocket::UnconnectedState)
         mSocket->abort();
+}
+
+// v1.3.1 — the saved seat (last room code + resume token) lives in
+// QSettings so it survives restarts. It is refreshed on every
+// room_joined and cleared only when the seat is definitively gone
+// (resume refused, kicked, room closed) — never on a plain Leave.
+void RoomClient::saveSeat()
+{
+    QSettings settings;
+    settings.setValue("rooms/lastCode", mRoomCode);
+    settings.setValue("rooms/lastToken", mResumeToken);
+}
+
+void RoomClient::clearSavedSeat()
+{
+    QSettings settings;
+    settings.remove("rooms/lastCode");
+    settings.remove("rooms/lastToken");
 }
 
 void RoomClient::resetState()
@@ -329,8 +359,12 @@ void RoomClient::onConnected()
         else
             object["type"] = "join_room";
         object["name"] = mPendingName;
-        if (mPendingAction == PendingAction::Join)
+        if (mPendingAction == PendingAction::Join) {
             object["code"] = mPendingCode;
+            if (!mPendingJoinToken.isEmpty())
+                object["resumeToken"] = mPendingJoinToken;
+            mPendingJoinToken.clear();
+        }
         object["doc"] = docToJson(mPendingDoc);
     }
     mPendingAction = PendingAction::None;
@@ -422,6 +456,11 @@ void RoomClient::onTextMessageReceived(const QString &message)
         mReconnectAttempt = 0;
         mReconnectTimer->stop();
         mPingTimer->start();
+        saveSeat();
+        // A join (not a reconnect-resume) that the server marked as a
+        // seat restore: the panel greets the user with "Welcome back".
+        const bool restoredSeat =
+                object.value("resumed").toBool(false) && !wasResume;
         QVector<RoomMemberInfo> members;
         for (const QJsonValue &value : room.value("members").toArray())
             members.append(memberFromJson(value.toObject()));
@@ -433,8 +472,11 @@ void RoomClient::onTextMessageReceived(const QString &message)
                         members, chatLog);
         if (wasResume)
             emit resumed();
+        if (restoredSeat)
+            emit seatRestored();
     } else if (type == "resume_failed") {
         QString failMessage = object.value("message").toString();
+        clearSavedSeat();
         resetState();
         emit resumeFailed(failMessage.isEmpty()
             ? tr("Your seat in the room has expired. Please join again.")
@@ -472,9 +514,11 @@ void RoomClient::onTextMessageReceived(const QString &message)
         emit memberRestricted(object.value("targetId").toString(),
                               object.value("restricted").toBool(false));
     } else if (type == "kicked") {
+        clearSavedSeat();
         resetState();
         emit kicked(object.value("message").toString());
     } else if (type == "room_closed") {
+        clearSavedSeat();
         resetState();
         emit roomClosed(object.value("message").toString());
     } else if (type == "error") {
