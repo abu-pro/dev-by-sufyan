@@ -366,11 +366,11 @@ void WelcomePage::paintEvent(QPaintEvent *event)
     const bool textRight = mTextRight;
     QLinearGradient gradient;
     if (textRight) {
-        gradient.setStart(QPointF{width(), 0});
-        gradient.setFinalStop(QPointF{width() * 0.42, 0});
+        gradient.setStart(QPointF{qreal(width()), 0.0});
+        gradient.setFinalStop(QPointF{width() * 0.42, 0.0});
     } else {
-        gradient.setStart(QPointF{0, 0});
-        gradient.setFinalStop(QPointF{width() * 0.58, 0});
+        gradient.setStart(QPointF{0.0, 0.0});
+        gradient.setFinalStop(QPointF{width() * 0.58, 0.0});
     }
     gradient.setColorAt(0.0, QColor{0, 0, 0, 150});
     gradient.setColorAt(1.0, QColor{0, 0, 0, 0});
@@ -379,8 +379,8 @@ void WelcomePage::paintEvent(QPaintEvent *event)
     // A gentle floor under the hotkey line (bottom of the text zone)
     // so it stays readable over bright artworks like Luffy's sky.
     QLinearGradient floorGrad;
-    floorGrad.setStart(QPointF{0, height() * 0.60});
-    floorGrad.setFinalStop(QPointF{0, height()});
+    floorGrad.setStart(QPointF{0.0, height() * 0.60});
+    floorGrad.setFinalStop(QPointF{0.0, qreal(height())});
     floorGrad.setColorAt(0.0, QColor{0, 0, 0, 0});
     floorGrad.setColorAt(1.0, QColor{0, 0, 0, 110});
     const QRect floorRect = textRight
