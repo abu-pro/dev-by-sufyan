@@ -1,17 +1,16 @@
 name: Dev by Sufyan — Android build
 
 # Builds the Android app (android/ in this repo) on a Linux runner and
-# attaches DevBySufyan.apk to the v1.2.0 GitHub Release, next to the
+# attaches DevBySufyan.apk to the v1.3.0 GitHub Release, next to the
 # Windows setup produced by devbysufyan-windows.yml. Release assets must
 # be published from inside Actions (the connector cannot upload to
 # uploads.github.com), hence the softprops step at the end.
 #
-# Signing (v1.2.0): ONE long-lived keystore, stored base64-encoded in the
-# DBS_KEYSTORE_B64 repo secret (passwords in DBS_KEYSTORE_PASS /
+# Signing (since v1.2.0): ONE long-lived keystore, stored base64-encoded
+# in the DBS_KEYSTORE_B64 repo secret (passwords in DBS_KEYSTORE_PASS /
 # DBS_KEY_PASS, alias in DBS_KEY_ALIAS). Every release is signed with the
-# same key, so new APKs install over old ones. (v1.1.0 used a per-run
-# throwaway key; the v1.2.0 APK therefore needs one uninstall of the old
-# app first — after that, updates install in place.)
+# same key, so new APKs install over old ones — v1.3.0 installs straight
+# over v1.2.0.
 
 on:
   workflow_dispatch:
@@ -62,24 +61,26 @@ jobs:
       - name: Stage APK at repo root
         run: cp app/build/outputs/apk/release/app-release.apk ../DevBySufyan.apk
 
-      # Adds DevBySufyan.apk to the v1.2.0 release (created by the
+      # Adds DevBySufyan.apk to the v1.3.0 release (created by the
       # Windows workflow); creates the release if it does not exist.
-      - name: Attach APK to release v1.2.0
+      - name: Attach APK to release v1.3.0
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.0
-          name: Dev by Sufyan — Red Panda Edition (v1.2.0)
+          tag_name: v1.3.0
+          name: Dev by Sufyan — Red Panda Edition (v1.3.0)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.2.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.3.0)**
 
-            The fix & professionalize release (full notes are on the Windows assets of this release):
+            The 10/10 polish release (full notes are on the Windows assets of this release):
 
-            - **PC setup now bundles the MinGW GCC compiler** — Compile & Run works out of the box
-            - **WhatsApp-style room chat** on PC, Android and web
-            - **Stable rooms** — a dropped connection no longer kills the room; clients reconnect and resume their seat automatically
-            - **Android: Create Room fixed**, visible connection states, WhatsApp-style chat
+            - **Anime welcome screen** — rotating artwork pack on the start page
+            - **5 anime editor themes** — Sukuna, Gojo, Zenitsu, Naruto x Sasuke, Luffy Gear 5 — with icons that follow the theme
+            - **Messages popup** — room chat in its own window that opens itself when a message arrives
+            - **Tabbed Rooms panel** and Rooms menu access to Messages / Code / Members / Settings
+            - **Admin per-member edit restrictions**, enforced by the server
+            - **Android parity**: restriction badge + admin toggle, unread chat badge
 
-            Note for Android: v1.1.0's APK was signed with a one-off key, so uninstall the old app once before installing v1.2.0. From v1.2.0 on, updates install over the previous version.
+            Note for Android: signed with the same fixed key as v1.2.0, so this APK installs straight over the previous version.
 
             Made by Abu Sufyan. Based on Red Panda C++ by Roy Qu and contributors — GNU GPL v3 (see LICENSE in this repo).
           files: DevBySufyan.apk
