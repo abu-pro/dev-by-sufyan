@@ -188,8 +188,12 @@ public:
 
     void openFiles(const QStringList& files);
     // v1.3.1: main() reports whether files came from the command line;
-    // the startup welcome page is only suppressed in that case.
+    // the startup Home page is only suppressed in that case.
     void noteCommandLineFiles(bool present);
+    // v1.3.2: main() calls this after the no-command-line startup has
+    // restored the last session: drop any untouched blank editor and put
+    // the Home tab in front.
+    void finishStartupWithHome();
 
     void newEditor(const QString& suffix="");
 
@@ -365,10 +369,12 @@ private:
     void onRoomMemberRestricted(const QString &targetId, bool restricted);
     void updateChatUnreadBadge();
     void setupWelcomePage();
-    void updateWelcomeVisibility();
+    // v1.3.2: the welcome page is a real "Home" tab in the editor area
+    void ensureHomeTab();
     void showWelcomePage();
-    void dismissWelcomePage();
+    void refreshHomePage();
     void onWelcomeNewDocument();
+    void onWelcomeRecentFile(const QString &filename);
     void selectRoomsTab(int index);
     void buildContextMenus();
     void buildEncodingMenu();
@@ -989,12 +995,11 @@ private:
     QAction *mMessagesAction = nullptr;
     int mChatUnread = 0;
     WelcomePage *mWelcomePage = nullptr;
-    QTimer *mWelcomeTimer = nullptr;
-    // Rooms v1.3.1: the welcome page is a startup-guaranteed presentation,
-    // not a side effect of "no editor open" (a startup editor always
-    // exists: restored session or the forced blank untitled file).
-    bool mWelcomeStartupPending = true;
-    bool mWelcomeStartupSettled = false;
+    // Rooms v1.3.2: the welcome page is a permanent "Home" tab (first tab
+    // of the editor area), not an overlay. Startup shows it whenever no
+    // file came from the command line; main() reports that case through
+    // noteCommandLineFiles() and calls finishStartupWithHome() after the
+    // session restore had its chance to load.
     bool mCommandLineFilesPresent = false;
     QLabel *mFileInfoStatus;
     LabelWithMenu *mFileEncodingStatus;

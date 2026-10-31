@@ -27,6 +27,7 @@
 #include <QHideEvent>
 #include <QIcon>
 #include <QLabel>
+#include <QListWidget>
 #include <QPainter>
 #include <QPaintEvent>
 #include <QPropertyAnimation>
@@ -145,6 +146,7 @@ WelcomePage::WelcomePage(QWidget *parent) :
                               tr("Editor font options"));
     auto *continueTile = makeTile(tr("Continue Coding"),
                                   tr("Go back to your open files"));
+    mContinueTile = continueTile;
     tiles->addWidget(newDocTile, 0, 0);
     tiles->addWidget(openDocTile, 0, 1);
     tiles->addWidget(newProjectTile, 1, 0);
@@ -153,6 +155,27 @@ WelcomePage::WelcomePage(QWidget *parent) :
     tiles->addWidget(fontTile, 2, 1);
     tiles->addWidget(continueTile, 3, 0, 1, 2);
     col->addLayout(tiles);
+
+    // ---- Recent files (v1.3.2): filled from the visit history ---------
+    col->addSpacing(4);
+    mRecentTitle = new QLabel{tr("Recent Files"), mContent};
+    mRecentTitle->setAttribute(Qt::WA_TranslucentBackground);
+    col->addWidget(mRecentTitle);
+    mRecentList = new QListWidget{mContent};
+    mRecentList->setMaximumHeight(106);
+    mRecentList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    mRecentList->setSelectionMode(QAbstractItemView::SingleSelection);
+    mRecentList->setCursor(Qt::PointingHandCursor);
+    col->addWidget(mRecentList);
+    mRecentTitle->setVisible(false);
+    mRecentList->setVisible(false);
+    mAnimatables << mRecentTitle << mRecentList;
+    connect(mRecentList, &QListWidget::itemClicked,
+            this, [this](QListWidgetItem *item) {
+        if (item)
+            emit recentFileRequested(
+                        item->data(Qt::UserRole).toString());
+    });
 
     col->addSpacing(10);
     mHotkeysLabel = new QLabel{mContent};
@@ -205,6 +228,26 @@ void WelcomePage::setHotkeysText(const QString &text)
     mHotkeysLabel->setText(text);
 }
 
+void WelcomePage::setRecentFiles(const QStringList &files)
+{
+    mRecentList->clear();
+    for (const QString &file : files) {
+        auto *item = new QListWidgetItem{QFileInfo{file}.fileName(),
+                                          mRecentList};
+        item->setData(Qt::UserRole, file);
+        item->setToolTip(file);
+    }
+    const bool hasFiles = !files.isEmpty();
+    mRecentTitle->setVisible(hasFiles);
+    mRecentList->setVisible(hasFiles);
+}
+
+void WelcomePage::setContinueVisible(bool visible)
+{
+    if (mContinueTile)
+        mContinueTile->setVisible(visible);
+}
+
 void WelcomePage::setFadeProgress(qreal value)
 {
     mFadeProgress = value;
@@ -231,6 +274,24 @@ void WelcomePage::applyAccentStyles()
             "QPushButton:pressed { background: " + rgba(mAccent, 110) + "; }";
     for (QPushButton *tile : mTiles)
         tile->setStyleSheet(tileStyle);
+    // Recent-files list borrows the same accent, so it recolours with
+    // every artwork exactly like the tiles do.
+    if (mRecentList) {
+        mRecentList->setStyleSheet(
+                "QListWidget { background: rgba(8,10,16,0.45);"
+                " border: 1.5px solid " + accent + "; border-radius: 10px;"
+                " color: #eef1f7; font-size: 10.5pt; outline: 0; }"
+                "QListWidget::item { padding: 4px 10px;"
+                " border-radius: 6px; }"
+                "QListWidget::item:hover { background: "
+                + rgba(mAccent, 64) + "; }"
+                "QListWidget::item:selected { background: "
+                + rgba(mAccent, 90) + "; }");
+    }
+    if (mRecentTitle)
+        mRecentTitle->setStyleSheet(
+                "font-size: 11pt; font-weight: bold; color: " + accent
+                + ";");
     mTitleLabel->setText(
                 "<span style=\"font-size:15pt; color:#ffffff;\">"
                 + tr("Welcome to") + "</span><br/>"

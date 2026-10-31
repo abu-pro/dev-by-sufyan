@@ -1903,8 +1903,9 @@ Editor* MainWindow::openFile(QString filename, bool activate, FileType fileType,
     try {
         Editor* oldEditor=nullptr;
         if (mEditorManager->pageCount()==1) {
-            oldEditor = mEditorManager->getEditor(0);
-            if (!oldEditor->isNew() || oldEditor->modified()) {
+            // [0] = the first EDITOR (the Home tab is not counted)
+            oldEditor = (*mEditorManager)[0];
+            if (!oldEditor || !oldEditor->isNew() || oldEditor->modified()) {
                 oldEditor = nullptr;
             }
         }
@@ -1973,8 +1974,8 @@ void MainWindow::openProject(QString filename, bool openFiles)
 
     } else {
         if (mEditorManager->pageCount()==1) {
-            oldEditor = mEditorManager->getEditor(0);
-            if (!oldEditor->isNew() || oldEditor->modified()) {
+            oldEditor = (*mEditorManager)[0];
+            if (!oldEditor || !oldEditor->isNew() || oldEditor->modified()) {
                 oldEditor = nullptr;
             }
         }
@@ -4670,7 +4671,10 @@ void MainWindow::onEditorClosed()
     updateEditorActions();
     updateAppTitle();
     if (mEditorManager->pageCount()==0) {
-
+        // Dev by Sufyan v1.3.2: with no editors left, land on the Home
+        // page instead of leaving an empty editor area (and never let a
+        // phantom blank editor spawn here).
+        showWelcomePage();
     }
 }
 
@@ -5410,7 +5414,9 @@ void MainWindow::onEditorTabContextMenu(QTabWidget* tabWidget, const QPoint &pos
     QMenu menu(this);
     QTabBar* tabBar = tabWidget->tabBar();
     Editor * editor = dynamic_cast<Editor *>(tabWidget->widget(index));
-    if (!switchHeaderSourceTarget(editor).isEmpty()) {
+    // The Home tab is not an Editor: editor is nullptr for it, and the
+    // editor-only entries below are all guarded by the null checks.
+    if (editor && !switchHeaderSourceTarget(editor).isEmpty()) {
         menu.addAction(ui->actionSwitchHeaderSource);
         menu.addSeparator();
     }

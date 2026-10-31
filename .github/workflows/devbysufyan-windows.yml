@@ -163,22 +163,22 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.3.1 release with the installer and the
+      # Publishes (or updates) the v1.3.2 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.3.1
-          name: Dev by Sufyan — Red Panda Edition (v1.3.1)
+          tag_name: v1.3.2
+          name: Dev by Sufyan — Red Panda Edition (v1.3.2)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.3.1)**
+            **Dev by Sufyan — Red Panda Edition (v1.3.2)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.3.1 — the fixes release:
-            - **Welcome screen fixed** — it now ALWAYS opens first at startup (even when your last session restores files), and you can reopen it any time from **Rooms > Home**. New look: the rotating artwork fills the whole page, the buttons float on the picture as glass tiles, and the accent colour follows each wallpaper's theme
-            - **Room rejoin fixed** — leave a room and join the same code again within 30 minutes and you get YOUR seat back: same identity, admin role and code (works on PC and web). The room now only closes if the admin stays away the full 30 minutes
-            - **Logo corners fixed** — the </> logo is now truly transparent outside the red rounded square (desktop icon, installer, welcome page)
+            New in v1.3.2 — the real Home screen release:
+            - **Home is now a real tab, like Word's Start screen** — the welcome page is a permanent first tab in the editor area, not an overlay. It opens in front at startup, your restored files stay as tabs next to it, and there is NO extra blank file created behind it anymore. New Document from Home makes exactly one new document
+            - **Recent Files on Home** — your recent files are listed on the Home page; click one to open it. The Continue Coding tile appears only while files are open, and closing every file brings you back to Home
+            - **Rooms spacing fixed** — the Rooms menu and the Rooms panel rows are compact now: neat single lines instead of widely spaced entries
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed

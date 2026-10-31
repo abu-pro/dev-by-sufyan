@@ -421,8 +421,8 @@ int main(int argc, char *argv[])
 
         QStringList filesToOpen = app.arguments();
         filesToOpen.pop_front();
-        // v1.3.1: files on the command line suppress the startup
-        // welcome page; a restored session does not.
+        // v1.3.2: files on the command line suppress the startup Home
+        // page; a restored session does not.
         mainWindow.noteCommandLineFiles(!filesToOpen.isEmpty());
         if (!filesToOpen.isEmpty()) {
             QStringList absoluteFiles;
@@ -436,12 +436,19 @@ int main(int argc, char *argv[])
                 }
             }
             mainWindow.openFiles(absoluteFiles);
+            // Keep the old fallback for this path only: if every named
+            // file failed to open, leave the user an editor to work in.
+            if (mainWindow.editorManager()->pageCount()==0 && !mainWindow.project()) {
+                mainWindow.newEditor();
+            }
         } else {
             if (pSettings->editor().autoLoadLastFiles())
                 mainWindow.loadLastOpens();
-        }
-        if (mainWindow.editorManager()->pageCount()==0 && !mainWindow.project()) {
-            mainWindow.newEditor();
+            // v1.3.2: NO forced blank editor behind the Home page.
+            // Whatever the session restored stays open as tabs, any
+            // untouched blank editor is dropped, and the Home tab is
+            // put in front — like Word's Start screen.
+            mainWindow.finishStartupWithHome();
         }
 
         //reset default open folder

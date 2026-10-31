@@ -23,6 +23,7 @@
 #include <QWidget>
 
 class QLabel;
+class QListWidget;
 class QPropertyAnimation;
 class QPushButton;
 class QTimer;
@@ -57,6 +58,10 @@ public:
 
     void setVersionText(const QString &text);
     void setHotkeysText(const QString &text);
+    // v1.3.2: the Home tab carries a Recent Files list (hidden while
+    // empty) and the Continue Coding tile only exists when editors do.
+    void setRecentFiles(const QStringList &files);
+    void setContinueVisible(bool visible);
 
     qreal fadeProgress() const { return mFadeProgress; }
     void setFadeProgress(qreal value);
@@ -71,6 +76,7 @@ signals:
     void roomsRequested();
     void themeRequested();
     void fontRequested();
+    void recentFileRequested(const QString &filename);
 
 protected:
     void paintEvent(QPaintEvent *event) override;
@@ -90,6 +96,9 @@ private:
     QLabel *mTitleLabel = nullptr;
     QLabel *mVersionLabel = nullptr;
     QLabel *mHotkeysLabel = nullptr;
+    QLabel *mRecentTitle = nullptr;
+    QListWidget *mRecentList = nullptr;
+    QPushButton *mContinueTile = nullptr;
     QWidget *mContent = nullptr;
     QList<QPushButton *> mTiles;
     QWidgetList mAnimatables;

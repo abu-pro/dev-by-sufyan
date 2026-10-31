@@ -43,6 +43,7 @@
 #include "../editor.h"
 #include "../editormanager.h"
 #include "../settings.h"
+#include "../visithistorymanager.h"
 #include "../settingsdialog/settingsdialog.h"
 #include "qsynedit/document.h"
 #include "roomclient.h"
@@ -141,6 +142,17 @@ void MainWindow::setupRooms()
     // Rooms menu: chat + every panel tab reachable from the top menu,
     // then the room actions (v1.3.0 restructure).
     QMenu *roomsMenu = new QMenu(tr("Rooms"), this);
+    // v1.3.2: compact rows — the app theme pads menu items very tall,
+    // which made these entries look like widely spaced lines. This
+    // stylesheet is scoped to the Rooms menu only; every other menu
+    // keeps the theme's look.
+    roomsMenu->setStyleSheet(
+        "QMenu { font-size: 10.5pt; }"
+        "QMenu::item { padding: 2px 24px 2px 12px; }"
+        "QMenu::item:selected { background: #2f6fb2; color: #ffffff; }"
+        "QMenu::separator { height: 3px; margin: 1px 8px; }"
+        "QMenu::indicator { width: 14px; height: 14px;"
+        " margin-left: 6px; }");
     // v1.3.1: the welcome/home page can be reopened at any time.
     roomsMenu->addAction(tr("Home"), this, &MainWindow::showWelcomePage);
     roomsMenu->addSeparator();
@@ -310,27 +322,99 @@ void MainWindow::noteCommandLineFiles(bool present)
     mCommandLineFilesPresent = present;
 }
 
-void MainWindow::showWelcomePage()
+void MainWindow::ensureHomeTab()
 {
-    // (Re)open the home page over the editor area, whatever is open.
-    mWelcomeStartupPending = true;
-    updateWelcomeVisibility();
-    if (mWelcomePage && mWelcomePage->isVisible())
-        mWelcomePage->setFocus();
+    if (!mWelcomePage)
+        return;
+    // The Home page is a permanent first tab of the editor area.
+    if (ui->EditorTabsLeft->indexOf(mWelcomePage) < 0
+            && ui->EditorTabsRight->indexOf(mWelcomePage) < 0)
+        ui->EditorTabsLeft->insertTab(0, mWelcomePage, tr("Home"));
+    // A permanent tab gets no close button (either side).
+    QTabWidget *host = ui->EditorTabsLeft->indexOf(mWelcomePage) >= 0
+            ? ui->EditorTabsLeft : ui->EditorTabsRight;
+    const int idx = host->indexOf(mWelcomePage);
+    host->tabBar()->setTabButton(idx, QTabBar::RightSide, nullptr);
+    host->tabBar()->setTabButton(idx, QTabBar::LeftSide, nullptr);
 }
 
-void MainWindow::dismissWelcomePage()
+void MainWindow::showWelcomePage()
 {
-    if (!mWelcomeStartupPending)
+    // Select the Home tab (Rooms > Home, startup, last editor closed).
+    if (!mWelcomePage)
         return;
-    mWelcomeStartupPending = false;
-    updateWelcomeVisibility();
+    ensureHomeTab();
+    QTabWidget *host = ui->EditorTabsLeft->indexOf(mWelcomePage) >= 0
+            ? ui->EditorTabsLeft : ui->EditorTabsRight;
+    // If the split layout currently hides the pane that holds Home (all
+    // editors live in the other pane), move Home into the visible pane
+    // so it always lands somewhere the user can actually see.
+    if (!host->isVisible()) {
+        QTabWidget *other = host == ui->EditorTabsLeft
+                ? ui->EditorTabsRight : ui->EditorTabsLeft;
+        host->removeTab(host->indexOf(mWelcomePage));
+        other->insertTab(0, mWelcomePage, tr("Home"));
+        other->tabBar()->setTabButton(0, QTabBar::RightSide, nullptr);
+        other->tabBar()->setTabButton(0, QTabBar::LeftSide, nullptr);
+        host = other;
+    }
+    refreshHomePage();
+    host->setCurrentWidget(mWelcomePage);
+    mWelcomePage->setFocus();
+}
+
+void MainWindow::refreshHomePage()
+{
+    if (!mWelcomePage || !mEditorManager)
+        return;
+    // Continue Coding only exists while editor tabs do.
+    mWelcomePage->setContinueVisible(mEditorManager->pageCount() > 0);
+    // Recent files: the same visit history as File > Recent Files,
+    // most recent first, files that still exist, at most six.
+    QStringList recent;
+    if (mVisitHistoryManager) {
+        for (const PVisitRecord &record : mVisitHistoryManager->files()) {
+            if (recent.size() >= 6)
+                break;
+            if (record && QFileInfo::exists(record->filename))
+                recent << record->filename;
+        }
+    }
+    mWelcomePage->setRecentFiles(recent);
+}
+
+void MainWindow::finishStartupWithHome()
+{
+    if (!mEditorManager)
+        return;
+    // Startup must not leave a phantom document behind the Home page:
+    // drop every untouched blank editor (a restored session keeps its
+    // real file tabs; only the empty untitled ones go).
+    QList<Editor *> blanks;
+    for (int i = 0; i < mEditorManager->pageCount(); i++) {
+        Editor *editor = (*mEditorManager)[i];
+        if (editor && editor->isNew() && !editor->modified()
+                && editor->empty())
+            blanks << editor;
+    }
+    for (Editor *editor : blanks)
+        mEditorManager->forceCloseEditor(editor);
+    showWelcomePage();
+}
+
+void MainWindow::onWelcomeRecentFile(const QString &filename)
+{
+    if (!filename.isEmpty())
+        openFile(filename);
 }
 
 void MainWindow::setupWelcomePage()
 {
-    mWelcomePage = new WelcomePage(ui->splitterEditorPanel);
-    mWelcomePage->setVersionText(tr("Version 1.3.1"));
+    // v1.3.2: the welcome page is no longer an overlay — it becomes the
+    // permanent "Home" tab of the editor area (see ensureHomeTab()).
+    // The approved full-bleed anime design is unchanged.
+    mWelcomePage = new WelcomePage(this);
+    mWelcomePage->setVersionText(tr("Version 1.3.2"));
     auto shortcutOf = [](QAction *action) {
         return action ? action->shortcut().toString() : QString();
     };
@@ -339,76 +423,49 @@ void MainWindow::setupWelcomePage()
                 .arg(shortcutOf(ui->actionNew), shortcutOf(ui->actionOpen),
                      shortcutOf(ui->actionSave), shortcutOf(ui->actionCompile),
                      shortcutOf(ui->actionRun)));
-    connect(mWelcomePage, &WelcomePage::continueRequested,
-            this, &MainWindow::dismissWelcomePage);
+    connect(mWelcomePage, &WelcomePage::continueRequested, this, [this]() {
+        // Jump to the first open editor tab (left pane first).
+        for (QTabWidget *tabs : {ui->EditorTabsLeft,
+                                 ui->EditorTabsRight}) {
+            for (int i = 0; i < tabs->count(); i++) {
+                if (qobject_cast<Editor *>(tabs->widget(i))) {
+                    tabs->setCurrentIndex(i);
+                    tabs->widget(i)->setFocus();
+                    return;
+                }
+            }
+        }
+    });
     connect(mWelcomePage, &WelcomePage::newDocumentRequested,
             this, &MainWindow::onWelcomeNewDocument);
     connect(mWelcomePage, &WelcomePage::openDocumentRequested, this, [this]() {
-        dismissWelcomePage();
         ui->actionOpen->trigger();
     });
     connect(mWelcomePage, &WelcomePage::newProjectRequested, this, [this]() {
-        dismissWelcomePage();
         ui->actionNew_Project->trigger();
     });
     connect(mWelcomePage, &WelcomePage::roomsRequested, this, [this]() {
-        dismissWelcomePage();
         mRoomsDock->show();
         mRoomsDock->raise();
     });
     connect(mWelcomePage, &WelcomePage::themeRequested, this, [this]() {
-        dismissWelcomePage();
         changeOptions(SettingsDialog::tr("Appearance"),
                       SettingsDialog::tr("Environment"));
     });
     connect(mWelcomePage, &WelcomePage::fontRequested, this, [this]() {
-        dismissWelcomePage();
         changeOptions(SettingsDialog::tr("Font"),
                       SettingsDialog::tr("Editor"));
     });
-    // Opening an editor through ANY path (menus, explorer, ...) leaves
-    // the startup home page — but only once startup has settled: the
-    // session restore and the forced blank editor also fire this signal
-    // (synchronously, before the event loop starts) and must NOT
-    // dismiss the page they are restored underneath.
-    connect(mEditorManager, &EditorManager::editorOpenned, this, [this]() {
-        if (mWelcomeStartupSettled)
-            dismissWelcomePage();
-    });
-    mWelcomePage->hide();
-    mWelcomeTimer = new QTimer(this);
-    mWelcomeTimer->setInterval(400);
-    connect(mWelcomeTimer, &QTimer::timeout,
-            this, &MainWindow::updateWelcomeVisibility);
-    mWelcomeTimer->start();
-    // Startup is settled once the event loop turns: by then main() has
-    // restored the last session / created the blank editor / opened any
-    // command-line files, all underneath the pending welcome page.
-    QTimer::singleShot(0, this, [this]() {
-        mWelcomeStartupSettled = true;
-        updateWelcomeVisibility();
-    });
-}
-
-void MainWindow::updateWelcomeVisibility()
-{
-    if (!mWelcomePage || !mEditorManager)
-        return;
-    // v1.3.1: the welcome page is the first thing seen at every normal
-    // startup (no command-line files): it stays pending over whatever
-    // session was restored until the user picks an action or opens an
-    // editor. It also returns whenever every editor is closed (the
-    // original v1.3.0 behaviour), and via Rooms > Home.
-    const bool show = (mWelcomeStartupPending && !mCommandLineFilesPresent)
-            || mEditorManager->pageCount() == 0;
-    if (show) {
-        mWelcomePage->setGeometry(ui->splitterEditorPanel->rect());
-        if (!mWelcomePage->isVisible())
-            mWelcomePage->show();
-        mWelcomePage->raise();
-    } else if (mWelcomePage->isVisible()) {
-        mWelcomePage->hide();
-    }
+    connect(mWelcomePage, &WelcomePage::recentFileRequested,
+            this, &MainWindow::onWelcomeRecentFile);
+    // Keep the Home content fresh: the Continue Coding tile and the
+    // recent-files list follow editors opening and closing.
+    connect(mEditorManager, &EditorManager::editorOpenned,
+            this, [this]() { refreshHomePage(); });
+    connect(mEditorManager, &EditorManager::editorClosed,
+            this, [this]() { refreshHomePage(); });
+    ensureHomeTab();
+    refreshHomePage();
 }
 
 void MainWindow::onWelcomeNewDocument()

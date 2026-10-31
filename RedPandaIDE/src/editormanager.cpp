@@ -28,6 +28,28 @@
 #include "utils/parser.h"
 #include <QApplication>
 
+namespace {
+
+// Dev by Sufyan v1.3.2: the Home page lives inside the editor tab widgets
+// as a plain QWidget (not an Editor). Every place that walks the tab
+// widgets must only ever treat real Editor pages as editors, so all tab
+// widget casts in this file go through these two helpers.
+Editor *asEditor(QWidget *widget)
+{
+    return qobject_cast<Editor *>(widget);
+}
+
+int countEditors(const QTabWidget *tabs)
+{
+    int count = 0;
+    for (int i = 0; i < tabs->count(); i++)
+        if (qobject_cast<Editor *>(tabs->widget(i)))
+            count++;
+    return count;
+}
+
+} // namespace
+
 EditorManager::EditorManager(QTabWidget* leftPageWidget,
       QTabWidget* rightPageWidget,
       QSplitter* splitter,
@@ -549,7 +571,8 @@ Editor* EditorManager::getEditor(int index, QTabWidget* tabsWidget) const {
     if (index<0 || index >= selectedWidget->count()) {
         return nullptr;
     }
-    return (Editor*)selectedWidget->widget(index);
+    // nullptr when the tab is not an editor (e.g. the Home page)
+    return asEditor(selectedWidget->widget(index));
 }
 
 bool EditorManager::closeEditor(Editor* editor, bool transferFocus, bool force) {
@@ -700,24 +723,28 @@ void EditorManager::endUpdate() {
 void EditorManager::applySettings()
 {
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mLeftPageWidget->widget(i));
-        e->applySettings();
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
+        if (e)
+            e->applySettings();
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mRightPageWidget->widget(i));
-        e->applySettings();
+        Editor* e = asEditor(mRightPageWidget->widget(i));
+        if (e)
+            e->applySettings();
     }
 }
 
 void EditorManager::applyColorSchemes(const QString& name)
 {
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mLeftPageWidget->widget(i));
-        e->applyColorScheme(name);
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
+        if (e)
+            e->applyColorScheme(name);
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mRightPageWidget->widget(i));
-        e->applyColorScheme(name);
+        Editor* e = asEditor(mRightPageWidget->widget(i));
+        if (e)
+            e->applyColorScheme(name);
     }
 }
 
@@ -726,13 +753,13 @@ bool EditorManager::isFileOpened(const QString &fullfilepath) const
     QFileInfo fileInfo(fullfilepath);
     QString filename = fileInfo.absoluteFilePath();
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mLeftPageWidget->widget(i));
-        if (e->filename().compare(filename)==0 || e->filename().compare(fullfilepath)==0)
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
+        if (e && (e->filename().compare(filename)==0 || e->filename().compare(fullfilepath)==0))
             return true;
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mRightPageWidget->widget(i));
-        if (e->filename().compare(filename)==0 || e->filename().compare(fullfilepath)==0)
+        Editor* e = asEditor(mRightPageWidget->widget(i));
+        if (e && (e->filename().compare(filename)==0 || e->filename().compare(fullfilepath)==0))
             return true;
     }
     return false;
@@ -741,14 +768,18 @@ bool EditorManager::isFileOpened(const QString &fullfilepath) const
 bool EditorManager::hasFilename(const QString &filename) const
 {
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mLeftPageWidget->widget(i));
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
+        if (!e)
+            continue;
         QFileInfo fileInfo(e->filename());
         QString name = fileInfo.fileName();
         if (name.compare(filename, PATH_SENSITIVITY)==0 )
             return true;
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mRightPageWidget->widget(i));
+        Editor* e = asEditor(mRightPageWidget->widget(i));
+        if (!e)
+            continue;
         QFileInfo fileInfo(e->filename());
         QString name = fileInfo.fileName();
         if (name.compare(filename, PATH_SENSITIVITY)==0 )
@@ -759,7 +790,8 @@ bool EditorManager::hasFilename(const QString &filename) const
 
 int EditorManager::pageCount() const
 {
-    return mLeftPageWidget->count()+mRightPageWidget->count();
+    // Editors only: the Home tab is a page, not an editor.
+    return countEditors(mLeftPageWidget)+countEditors(mRightPageWidget);
 }
 
 void EditorManager::selectNextPage()
@@ -811,12 +843,25 @@ void EditorManager::activeEditorAndSetCaret(Editor *e, QSynedit::CharPos pos)
 
 Editor *EditorManager::operator[](int index)
 {
-    if (index>=0 && index<mLeftPageWidget->count()) {
-        return static_cast<Editor*>(mLeftPageWidget->widget(index));
+    // The index-th EDITOR (left pane first, then right); non-editor pages
+    // such as the Home tab are skipped, so [0..pageCount()) are all valid.
+    if (index < 0)
+        return nullptr;
+    for (int i=0;i<mLeftPageWidget->count();i++) {
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
+        if (!e)
+            continue;
+        if (index == 0)
+            return e;
+        index--;
     }
-    index -= mLeftPageWidget->count();
-    if (index>=0 && index<mRightPageWidget->count()) {
-        return static_cast<Editor*>(mRightPageWidget->widget(index));
+    for (int i=0;i<mRightPageWidget->count();i++) {
+        Editor* e = asEditor(mRightPageWidget->widget(i));
+        if (!e)
+            continue;
+        if (index == 0)
+            return e;
+        index--;
     }
     return nullptr;
 }
@@ -826,16 +871,20 @@ bool EditorManager::closeAll(bool force) {
 //    auto end = finally([this] {
 //        this->endUpdate();
 //    });
-    while (mLeftPageWidget->count()>0) {
-        Editor* e = getEditor(0,mLeftPageWidget);
-        if (e->parser())
-            resetCppParser(e->parser());
-        if (!closeEditor(e,false,force)) {
-            return false;
-        }
+    // Collect the editors first: closing one removes its tab, and the tab
+    // widgets may also hold non-editor pages (the Home tab stays open).
+    QList<Editor*> editors;
+    for (int i=0;i<mLeftPageWidget->count();i++) {
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
+        if (e)
+            editors.append(e);
     }
-    while (mRightPageWidget->count()>0) {
-        Editor* e = getEditor(0,mRightPageWidget);
+    for (int i=0;i<mRightPageWidget->count();i++) {
+        Editor* e = asEditor(mRightPageWidget->widget(i));
+        if (e)
+            editors.append(e);
+    }
+    for (Editor* e: editors) {
         if (e->parser())
             resetCppParser(e->parser());
         if (!closeEditor(e,false,force)) {
@@ -849,10 +898,14 @@ bool EditorManager::closeOthers(Editor *editor)
 {
     QList<Editor*> editors;
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        editors.append(static_cast<Editor*>(mLeftPageWidget->widget(i)));
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
+        if (e)
+            editors.append(e);
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        editors.append(static_cast<Editor*>(mRightPageWidget->widget(i)));
+        Editor* e = asEditor(mRightPageWidget->widget(i));
+        if (e)
+            editors.append(e);
     }
     for (Editor* e: editors ) {
         if (e!=editor) {
@@ -880,7 +933,7 @@ Editor* EditorManager::getOpenedEditor(const QString &filename) const
     if (filename.isEmpty())
         return nullptr;
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mLeftPageWidget->widget(i));
+        Editor* e = asEditor(mLeftPageWidget->widget(i));
         if (!e)
             continue;
         if (e->filename().compare(filename, PATH_SENSITIVITY)==0) {
@@ -888,7 +941,7 @@ Editor* EditorManager::getOpenedEditor(const QString &filename) const
         }
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        Editor* e = static_cast<Editor*>(mRightPageWidget->widget(i));
+        Editor* e = asEditor(mRightPageWidget->widget(i));
         if (!e)
             continue;
         if (e->filename().compare(filename)==0) {
@@ -935,9 +988,11 @@ void EditorManager::getVisibleEditors(Editor *&left, Editor *&right) const
 
 void EditorManager::updateLayout()
 {
-    if (mRightPageWidget->count() == 0)
+    // Editor counts only: the Home tab alone in a pane must not count as
+    // content that forces the two-pane layout.
+    if (countEditors(mRightPageWidget) == 0)
         showLayout(LayoutShowType::lstLeft);
-    else if (mLeftPageWidget->count() ==0)
+    else if (countEditors(mLeftPageWidget) ==0)
         showLayout(LayoutShowType::lstRight);
     else
         showLayout(LayoutShowType::lstBoth);
@@ -960,24 +1015,28 @@ QTabWidget *EditorManager::findPageControlForEditor(Editor *e)
 void EditorManager::updateEditorBookmarks()
 {
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        Editor * e = static_cast<Editor*>(mLeftPageWidget->widget(i));
-        e->resetBookmarks(pMainWindow->bookmarkModel());
+        Editor * e = asEditor(mLeftPageWidget->widget(i));
+        if (e)
+            e->resetBookmarks(pMainWindow->bookmarkModel());
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        Editor * e = static_cast<Editor*>(mRightPageWidget->widget(i));
-        e->resetBookmarks(pMainWindow->bookmarkModel());
+        Editor * e = asEditor(mRightPageWidget->widget(i));
+        if (e)
+            e->resetBookmarks(pMainWindow->bookmarkModel());
     }
 }
 
 void EditorManager::updateEditorBreakpoints()
 {
     for (int i=0;i<mLeftPageWidget->count();i++) {
-        Editor * e = static_cast<Editor*>(mLeftPageWidget->widget(i));
-        e->resetBreakpoints(pMainWindow->debugger()->breakpointModel().get());
+        Editor * e = asEditor(mLeftPageWidget->widget(i));
+        if (e)
+            e->resetBreakpoints(pMainWindow->debugger()->breakpointModel().get());
     }
     for (int i=0;i<mRightPageWidget->count();i++) {
-        Editor * e = static_cast<Editor*>(mRightPageWidget->widget(i));
-        e->resetBreakpoints(pMainWindow->debugger()->breakpointModel().get());
+        Editor * e = asEditor(mRightPageWidget->widget(i));
+        if (e)
+            e->resetBreakpoints(pMainWindow->debugger()->breakpointModel().get());
     }
 }
 

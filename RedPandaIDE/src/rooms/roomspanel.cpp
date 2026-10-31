@@ -59,8 +59,10 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     QWidget{parent}
 {
     auto *layout = new QVBoxLayout{this};
-    layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(8);
+    // v1.3.2: tightened from 8/8 — the panel reads as neat compact
+    // lines instead of widely spaced rows.
+    layout->setContentsMargins(6, 6, 6, 6);
+    layout->setSpacing(5);
 
     // ---- Header: status + reconnect banner + Messages ------------------
     mStatusLabel = new QLabel{tr("Not in a room"), this};
@@ -84,7 +86,7 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     mJoinBox = new QWidget{this};
     auto *joinLayout = new QVBoxLayout{mJoinBox};
     joinLayout->setContentsMargins(0, 0, 0, 0);
-    joinLayout->setSpacing(6);
+    joinLayout->setSpacing(4);
     mNameEdit = new QLineEdit{mJoinBox};
     mNameEdit->setPlaceholderText(tr("Your name"));
     mNameEdit->setMaxLength(24);
@@ -110,7 +112,7 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     // Room tab
     auto *roomTab = new QWidget{mTabs};
     auto *roomLayout = new QVBoxLayout{roomTab};
-    roomLayout->setSpacing(8);
+    roomLayout->setSpacing(5);
     auto *codeRow = new QHBoxLayout;
     codeRow->addWidget(new QLabel{tr("Room code:"), roomTab});
     mCodeLabel = new QLabel{roomTab};
@@ -137,9 +139,12 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     // Members tab
     auto *membersTab = new QWidget{mTabs};
     auto *membersLayout = new QVBoxLayout{membersTab};
-    membersLayout->setSpacing(6);
+    membersLayout->setSpacing(4);
     mMembersList = new QListWidget{membersTab};
     mMembersList->setContextMenuPolicy(Qt::CustomContextMenu);
+    // v1.3.2: compact member rows (neat single lines, less air).
+    mMembersList->setStyleSheet(
+        "QListWidget::item { padding: 1px 4px; }");
     membersLayout->addWidget(mMembersList);
     mSaveCodeButton = new QPushButton{tr("Save Code…"), membersTab};
     mSaveCodeButton->setToolTip(
@@ -158,7 +163,7 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     // Settings tab
     auto *settingsTab = new QWidget{mTabs};
     auto *settingsLayout = new QVBoxLayout{settingsTab};
-    settingsLayout->setSpacing(6);
+    settingsLayout->setSpacing(4);
     mSettingsNote = new QLabel{
         tr("Only the admin can change these settings."), settingsTab};
     mSettingsNote->setWordWrap(true);
@@ -320,6 +325,8 @@ void RoomsPanel::setMembers(const QVector<RoomMemberInfo> &members,
         badges << languageDisplayName(member.doc.language);
         QString text = member.name + " · " + badges.join(" · ");
         auto *item = new QListWidgetItem{text, mMembersList};
+        // v1.3.2: fixed compact row height — one neat line per member.
+        item->setSizeHint(QSize{0, 23});
         item->setData(Qt::UserRole, member.id);
         item->setIcon(dotIcon(member.away ? QColor{"#b0b0b0"}
                                           : memberColor(member.id)));
@@ -459,6 +466,12 @@ void RoomsPanel::onMemberContextMenu(const QPoint &pos)
         return;
     const RoomMemberInfo *info = memberInfo(memberId);
     QMenu menu{this};
+    // v1.3.2: same compact rows as the Rooms menu.
+    menu.setStyleSheet(
+        "QMenu { font-size: 10.5pt; }"
+        "QMenu::item { padding: 2px 24px 2px 12px; }"
+        "QMenu::item:selected { background: #2f6fb2; color: #ffffff; }"
+        "QMenu::separator { height: 3px; margin: 1px 8px; }");
     QAction *openAction = menu.addAction(tr("Open code"));
     QAction *restrictAction = nullptr;
     QAction *kickAction = nullptr;
