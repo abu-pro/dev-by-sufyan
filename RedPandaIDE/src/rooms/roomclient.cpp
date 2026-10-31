@@ -52,6 +52,7 @@ RoomMemberInfo memberFromJson(const QJsonObject &object)
     member.name = object.value("name").toString();
     member.role = object.value("role").toString("member");
     member.away = object.value("away").toBool(false);
+    member.restricted = object.value("restricted").toBool(false);
     member.doc = docFromJson(object.value("doc").toObject());
     return member;
 }
@@ -252,6 +253,17 @@ void RoomClient::kick(const QString &targetId)
     QJsonObject object;
     object["type"] = "kick";
     object["targetId"] = targetId;
+    sendJson(object);
+}
+
+void RoomClient::setMemberRestricted(const QString &targetId, bool restricted)
+{
+    if (!mInRoom)
+        return;
+    QJsonObject object;
+    object["type"] = "member_restrict";
+    object["targetId"] = targetId;
+    object["restricted"] = restricted;
     sendJson(object);
 }
 
@@ -456,6 +468,9 @@ void RoomClient::onTextMessageReceived(const QString &message)
     } else if (type == "member_typing") {
         emit memberTyping(object.value("fromId").toString(),
                           object.value("fromName").toString());
+    } else if (type == "member_restricted") {
+        emit memberRestricted(object.value("targetId").toString(),
+                              object.value("restricted").toBool(false));
     } else if (type == "kicked") {
         resetState();
         emit kicked(object.value("message").toString());

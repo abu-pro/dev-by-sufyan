@@ -16,26 +16,19 @@
  */
 #include "roomspanel.h"
 
-#include <QAbstractItemModel>
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
-#include <QDateTime>
-#include <QElapsedTimer>
-#include <QEvent>
-#include <QGroupBox>
 #include <QHBoxLayout>
-#include <QIcon>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMenu>
 #include <QPainter>
-#include <QPalette>
 #include <QPixmap>
 #include <QPushButton>
 #include <QSpinBox>
-#include <QStyledItemDelegate>
+#include <QTabWidget>
 #include <QTimer>
 #include <QVBoxLayout>
 
@@ -60,183 +53,6 @@ QIcon dotIcon(const QColor &color)
     return QIcon{pixmap};
 }
 
-// ---------------------------------------------------------------------
-// WhatsApp-style chat bubbles, painted by a delegate (v1.2.0).
-// Own messages sit right in a green bubble; other members' messages sit
-// left in a white/dark bubble with their name in their member color and
-// a small timestamp inside the bubble. Painting (rather than per-item
-// widgets) keeps word-wrap sizing exact and cheap for long histories.
-// ---------------------------------------------------------------------
-enum ChatRoles {
-    ChatTextRole = Qt::UserRole + 1,
-    ChatNameRole,
-    ChatOwnRole,
-    ChatColorRole,
-    ChatTimeRole,
-};
-
-class ChatBubbleDelegate : public QStyledItemDelegate
-{
-public:
-    explicit ChatBubbleDelegate(QListWidget *view) :
-        QStyledItemDelegate{view}, mView{view}
-    {
-        if (mView && mView->viewport())
-            mView->viewport()->installEventFilter(this);
-    }
-
-    bool eventFilter(QObject *watched, QEvent *event) override
-    {
-        // Bubble sizes depend on the list width: when it changes, every
-        // cached size hint is stale.
-        if (mView && watched == mView->viewport()
-                && event->type() == QEvent::Resize) {
-            if (QAbstractItemModel *model = mView->model()) {
-                for (int row = 0; row < model->rowCount(); ++row)
-                    emit sizeHintChanged(model->index(row, 0));
-            }
-        }
-        return QStyledItemDelegate::eventFilter(watched, event);
-    }
-
-    QSize sizeHint(const QStyleOptionViewItem &option,
-                   const QModelIndex &index) const override
-    {
-        int width = mView ? mView->viewport()->width() : option.rect.width();
-        if (width <= 0)
-            width = 280;
-        Geom g = compute(option.font, index, width);
-        return QSize{width, g.bubbleH + 2 * kVMargin};
-    }
-
-    void paint(QPainter *painter, const QStyleOptionViewItem &option,
-               const QModelIndex &index) const override
-    {
-        int width = mView ? mView->viewport()->width() : option.rect.width();
-        Geom g = compute(option.font, index, width);
-        bool own = index.data(ChatOwnRole).toBool();
-        QRect area = option.rect;
-        QRect bubble;
-        if (own)
-            bubble = QRect{area.right() - kSide - g.bubbleW + 1,
-                           area.top() + kVMargin, g.bubbleW, g.bubbleH};
-        else
-            bubble = QRect{area.left() + kSide, area.top() + kVMargin,
-                           g.bubbleW, g.bubbleH};
-
-        painter->save();
-        painter->setRenderHint(QPainter::Antialiasing);
-        painter->setPen(Qt::NoPen);
-        painter->setBrush(own ? ownBubbleColor() : otherBubbleColor());
-        painter->drawRoundedRect(bubble, 10, 10);
-
-        int x = bubble.left() + kPadX;
-        int y = bubble.top() + kPadY;
-        if (!own) {
-            QFont nameFont = option.font;
-            nameFont.setBold(true);
-            painter->setFont(nameFont);
-            painter->setPen(index.data(ChatColorRole).value<QColor>());
-            painter->drawText(QRect{x, y, g.textW, g.nameH},
-                              Qt::AlignLeft | Qt::AlignTop,
-                              index.data(ChatNameRole).toString());
-            y += g.nameH;
-        }
-        painter->setFont(option.font);
-        painter->setPen(textColor());
-        painter->drawText(QRect{x, y, g.textW, g.textH},
-                          Qt::TextWordWrap | Qt::AlignLeft | Qt::AlignTop,
-                          index.data(ChatTextRole).toString());
-        y += g.textH + 2;
-
-        QFont timeFont = option.font;
-        if (timeFont.pointSize() > 0)
-            timeFont.setPointSize(timeFont.pointSize() - 2);
-        painter->setFont(timeFont);
-        painter->setPen(timeColor());
-        painter->drawText(
-                    QRect{bubble.right() - kPadX - g.timeW, y, g.timeW, g.timeH},
-                    Qt::AlignRight | Qt::AlignTop,
-                    index.data(ChatTimeRole).toString());
-        painter->restore();
-    }
-
-private:
-    struct Geom {
-        int bubbleW = 0;
-        int bubbleH = 0;
-        int textW = 0;
-        int textH = 0;
-        int nameH = 0;
-        int timeW = 0;
-        int timeH = 0;
-    };
-
-    Geom compute(const QFont &font, const QModelIndex &index, int viewW) const
-    {
-        bool own = index.data(ChatOwnRole).toBool();
-        QString text = index.data(ChatTextRole).toString();
-        QString name = index.data(ChatNameRole).toString();
-        QString time = index.data(ChatTimeRole).toString();
-
-        int bubbleMaxW = qMax(140, int((viewW - 2 * kSide) * 0.78));
-        int textMaxW = bubbleMaxW - 2 * kPadX;
-
-        QFontMetrics fm{font};
-        QRect textRect = fm.boundingRect(QRect{0, 0, textMaxW, 100000},
-                                         Qt::TextWordWrap, text);
-        QFont nameFont = font;
-        nameFont.setBold(true);
-        QFontMetrics nameFm{nameFont};
-        int nameW = own ? 0 : nameFm.horizontalAdvance(name);
-        QFont timeFont = font;
-        if (timeFont.pointSize() > 0)
-            timeFont.setPointSize(timeFont.pointSize() - 2);
-        QFontMetrics timeFm{timeFont};
-
-        Geom g;
-        g.textW = qMax(qMax(textRect.width(), nameW),
-                       timeFm.horizontalAdvance(time));
-        g.textW = qMin(g.textW, textMaxW);
-        g.textH = textRect.height();
-        g.nameH = own ? 0 : nameFm.height() + 2;
-        g.timeW = timeFm.horizontalAdvance(time);
-        g.timeH = timeFm.height();
-        g.bubbleW = g.textW + 2 * kPadX;
-        g.bubbleH = kPadY + g.nameH + g.textH + 2 + g.timeH + kPadY;
-        return g;
-    }
-
-    bool darkMode() const
-    {
-        return mView
-                && mView->palette().color(QPalette::Window).lightness() < 110;
-    }
-    QColor ownBubbleColor() const
-    {
-        return darkMode() ? QColor{"#005c4b"} : QColor{"#dcf8c6"};
-    }
-    QColor otherBubbleColor() const
-    {
-        return darkMode() ? QColor{"#202c33"} : QColor{"#ffffff"};
-    }
-    QColor textColor() const
-    {
-        return darkMode() ? QColor{"#e9edef"} : QColor{"#111b21"};
-    }
-    QColor timeColor() const
-    {
-        return darkMode() ? QColor{"#8696a0"} : QColor{"#667781"};
-    }
-
-    static constexpr int kSide = 8;    // list edge to bubble
-    static constexpr int kVMargin = 3; // bubble vertical spacing
-    static constexpr int kPadX = 10;   // bubble inner padding
-    static constexpr int kPadY = 6;
-
-    QListWidget *mView;
-};
-
 } // namespace
 
 RoomsPanel::RoomsPanel(QWidget *parent) :
@@ -246,26 +62,26 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
 
-    // ---- Room section -------------------------------------------------
-    auto *roomBox = new QGroupBox{tr("Room"), this};
-    auto *roomLayout = new QVBoxLayout{roomBox};
-    roomLayout->setSpacing(6);
-
-    mStatusLabel = new QLabel{tr("Not in a room"), roomBox};
+    // ---- Header: status + reconnect banner + Messages ------------------
+    mStatusLabel = new QLabel{tr("Not in a room"), this};
     mStatusLabel->setWordWrap(true);
-    roomLayout->addWidget(mStatusLabel);
+    layout->addWidget(mStatusLabel);
 
-    mConnLabel = new QLabel{
-        tr("Connection lost — reconnecting…"), roomBox};
+    mConnLabel = new QLabel{tr("Connection lost — reconnecting…"), this};
     mConnLabel->setWordWrap(true);
     mConnLabel->setStyleSheet(
         "background:#fff4e5; border:1px solid #f0c36d; border-radius:4px;"
         " color:#7a4d00; padding:4px 6px; font-weight:bold;");
     mConnLabel->setVisible(false);
-    roomLayout->addWidget(mConnLabel);
+    layout->addWidget(mConnLabel);
 
-    // create / join (visible while not in a room)
-    mJoinBox = new QWidget{roomBox};
+    mMessagesButton = new QPushButton{tr("Messages"), this};
+    mMessagesButton->setToolTip(tr("Open the room chat window"));
+    mMessagesButton->setVisible(false);
+    layout->addWidget(mMessagesButton);
+
+    // ---- Create / join (visible while not in a room) --------------------
+    mJoinBox = new QWidget{this};
     auto *joinLayout = new QVBoxLayout{mJoinBox};
     joinLayout->setContentsMargins(0, 0, 0, 0);
     joinLayout->setSpacing(6);
@@ -284,109 +100,89 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     mJoinButton = new QPushButton{tr("Join Room"), mJoinBox};
     joinRow->addWidget(mJoinButton);
     joinLayout->addLayout(joinRow);
-    roomLayout->addWidget(mJoinBox);
+    layout->addWidget(mJoinBox);
 
-    // in-room info (visible while in a room)
-    mRoomInfoBox = new QWidget{roomBox};
-    auto *infoLayout = new QVBoxLayout{mRoomInfoBox};
-    infoLayout->setContentsMargins(0, 0, 0, 0);
-    infoLayout->setSpacing(6);
+    // ---- Tabs (visible while in a room) ---------------------------------
+    mTabs = new QTabWidget{this};
+    mTabs->setVisible(false);
+    layout->addWidget(mTabs, 1);
+
+    // Room tab
+    auto *roomTab = new QWidget{mTabs};
+    auto *roomLayout = new QVBoxLayout{roomTab};
+    roomLayout->setSpacing(8);
     auto *codeRow = new QHBoxLayout;
-    codeRow->addWidget(new QLabel{tr("Room code:"), mRoomInfoBox});
-    mCodeLabel = new QLabel{mRoomInfoBox};
+    codeRow->addWidget(new QLabel{tr("Room code:"), roomTab});
+    mCodeLabel = new QLabel{roomTab};
     mCodeLabel->setStyleSheet(
         "font-size:18pt; font-weight:bold; letter-spacing:2px;");
     codeRow->addWidget(mCodeLabel);
-    mCopyCodeButton = new QPushButton{tr("Copy"), mRoomInfoBox};
+    mCopyCodeButton = new QPushButton{tr("Copy"), roomTab};
     mCopyCodeButton->setToolTip(tr("Copy the room code"));
     codeRow->addWidget(mCopyCodeButton);
     codeRow->addStretch();
-    infoLayout->addLayout(codeRow);
-    mProjectLabel = new QLabel{mRoomInfoBox};
+    roomLayout->addLayout(codeRow);
+    mProjectLabel = new QLabel{roomTab};
     mProjectLabel->setWordWrap(true);
     mProjectLabel->setStyleSheet(
         "background:#fdecea; border:1px solid #f0b8b2; border-radius:4px;"
         " padding:4px 6px; font-weight:bold; color:#8f1f14;");
     mProjectLabel->setVisible(false);
-    infoLayout->addWidget(mProjectLabel);
-    mLeaveButton = new QPushButton{tr("Leave Room"), mRoomInfoBox};
-    infoLayout->addWidget(mLeaveButton);
-    mRoomInfoBox->setVisible(false);
-    roomLayout->addWidget(mRoomInfoBox);
-    layout->addWidget(roomBox);
+    roomLayout->addWidget(mProjectLabel);
+    roomLayout->addStretch();
+    mLeaveButton = new QPushButton{tr("Leave Room"), roomTab};
+    roomLayout->addWidget(mLeaveButton);
+    mTabs->addTab(roomTab, tr("Room"));
 
-    // ---- Members section ----------------------------------------------
-    mMembersBox = new QGroupBox{tr("Members"), this};
-    auto *membersLayout = new QVBoxLayout{mMembersBox};
+    // Members tab
+    auto *membersTab = new QWidget{mTabs};
+    auto *membersLayout = new QVBoxLayout{membersTab};
     membersLayout->setSpacing(6);
-    mMembersList = new QListWidget{mMembersBox};
+    mMembersList = new QListWidget{membersTab};
     mMembersList->setContextMenuPolicy(Qt::CustomContextMenu);
     membersLayout->addWidget(mMembersList);
-    mSaveCodeButton = new QPushButton{tr("Save Code…"), mMembersBox};
+    mSaveCodeButton = new QPushButton{tr("Save Code…"), membersTab};
     mSaveCodeButton->setToolTip(
         tr("Save the code you are viewing to a file on this computer"));
     membersLayout->addWidget(mSaveCodeButton);
-    mMembersBox->setVisible(false);
-    layout->addWidget(mMembersBox);
+    auto *memberActions = new QHBoxLayout;
+    mRestrictButton = new QPushButton{tr("Restrict editing"), membersTab};
+    mRestrictButton->setToolTip(tr("Bar the selected member from editing "
+                                   "other members' code (admin only)"));
+    memberActions->addWidget(mRestrictButton);
+    mKickButton = new QPushButton{tr("Kick"), membersTab};
+    memberActions->addWidget(mKickButton);
+    membersLayout->addLayout(memberActions);
+    mTabs->addTab(membersTab, tr("Members"));
 
-    // ---- Chat section (WhatsApp-style) ---------------------------------
-    mChatBox = new QGroupBox{tr("Chat"), this};
-    auto *chatLayout = new QVBoxLayout{mChatBox};
-    chatLayout->setSpacing(6);
-    mChatList = new QListWidget{mChatBox};
-    mChatList->setItemDelegate(new ChatBubbleDelegate{mChatList});
-    mChatList->setSelectionMode(QAbstractItemView::NoSelection);
-    mChatList->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    mChatList->setStyleSheet(palette().color(QPalette::Window).lightness() < 110
-        ? "QListWidget { background:#0b141a; border:1px solid #2a3942; }"
-        : "QListWidget { background:#ece5dd; border:1px solid #ddd6cc; }");
-    chatLayout->addWidget(mChatList);
-    mTypingLabel = new QLabel{mChatBox};
-    mTypingLabel->setStyleSheet("color:#666; font-style:italic;");
-    chatLayout->addWidget(mTypingLabel);
-    auto *chatRow = new QHBoxLayout;
-    chatRow->setSpacing(6);
-    mChatEdit = new QLineEdit{mChatBox};
-    mChatEdit->setPlaceholderText(tr("Type a message…"));
-    mChatEdit->setMaxLength(500);
-    mChatEdit->setStyleSheet(
-        "QLineEdit { border:1px solid #b9b9b9; border-radius:13px;"
-        " padding:5px 10px; }");
-    chatRow->addWidget(mChatEdit);
-    mChatSendButton = new QPushButton{tr("Send"), mChatBox};
-    mChatSendButton->setStyleSheet(
-        "QPushButton { background:#25d366; color:white; border:none;"
-        " border-radius:13px; padding:6px 16px; font-weight:bold; }"
-        "QPushButton:disabled { background:#a8a8a8; }");
-    chatRow->addWidget(mChatSendButton);
-    chatLayout->addLayout(chatRow);
-    mChatBox->setVisible(false);
-    layout->addWidget(mChatBox);
-
-    // ---- Admin settings -------------------------------------------------
-    mSettingsBox = new QGroupBox{tr("Admin settings"), this};
-    auto *settingsLayout = new QVBoxLayout{mSettingsBox};
+    // Settings tab
+    auto *settingsTab = new QWidget{mTabs};
+    auto *settingsLayout = new QVBoxLayout{settingsTab};
     settingsLayout->setSpacing(6);
-    settingsLayout->addWidget(new QLabel{tr("Project name"), mSettingsBox});
-    mProjectEdit = new QLineEdit{mSettingsBox};
+    mSettingsNote = new QLabel{
+        tr("Only the admin can change these settings."), settingsTab};
+    mSettingsNote->setWordWrap(true);
+    mSettingsNote->setStyleSheet("color:#666; font-style:italic;");
+    settingsLayout->addWidget(mSettingsNote);
+    settingsLayout->addWidget(new QLabel{tr("Project name"), settingsTab});
+    mProjectEdit = new QLineEdit{settingsTab};
     mProjectEdit->setPlaceholderText(tr("e.g. Rocket Simulator"));
     mProjectEdit->setMaxLength(60);
     settingsLayout->addWidget(mProjectEdit);
     auto *maxLayout = new QHBoxLayout;
-    maxLayout->addWidget(new QLabel{tr("Max members"), mSettingsBox});
-    mMaxMembersSpin = new QSpinBox{mSettingsBox};
+    maxLayout->addWidget(new QLabel{tr("Max members"), settingsTab});
+    mMaxMembersSpin = new QSpinBox{settingsTab};
     mMaxMembersSpin->setRange(2, 50);
     mMaxMembersSpin->setValue(8);
     maxLayout->addWidget(mMaxMembersSpin);
     settingsLayout->addLayout(maxLayout);
     mPeerEditCheck = new QCheckBox{
-        tr("Members can edit each other's code"), mSettingsBox};
+        tr("Members can edit each other's code"), settingsTab};
     settingsLayout->addWidget(mPeerEditCheck);
-    auto *applyButton = new QPushButton{tr("Apply settings"), mSettingsBox};
-    settingsLayout->addWidget(applyButton);
-    mSettingsBox->setVisible(false);
-    layout->addWidget(mSettingsBox);
-    layout->addStretch();
+    mApplySettingsButton = new QPushButton{tr("Apply settings"), settingsTab};
+    settingsLayout->addWidget(mApplySettingsButton);
+    settingsLayout->addStretch();
+    mTabs->addTab(settingsTab, tr("Settings"));
 
     connect(mCreateButton, &QPushButton::clicked,
             this, &RoomsPanel::onCreateClicked);
@@ -394,29 +190,30 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
             this, &RoomsPanel::onJoinClicked);
     connect(mCodeEdit, &QLineEdit::returnPressed,
             this, &RoomsPanel::onJoinClicked);
+    connect(mNameEdit, &QLineEdit::returnPressed,
+            this, &RoomsPanel::onCreateClicked);
     connect(mLeaveButton, &QPushButton::clicked,
             this, &RoomsPanel::leaveRequested);
     connect(mCopyCodeButton, &QPushButton::clicked,
             this, &RoomsPanel::onCopyCodeClicked);
-    connect(applyButton, &QPushButton::clicked,
+    connect(mMessagesButton, &QPushButton::clicked,
+            this, &RoomsPanel::messagesRequested);
+    connect(mApplySettingsButton, &QPushButton::clicked,
             this, &RoomsPanel::onApplySettingsClicked);
     connect(mMembersList, &QListWidget::itemDoubleClicked,
             this, &RoomsPanel::onMemberDoubleClicked);
     connect(mMembersList, &QWidget::customContextMenuRequested,
             this, &RoomsPanel::onMemberContextMenu);
+    connect(mMembersList, &QListWidget::itemSelectionChanged,
+            this, &RoomsPanel::onMemberSelectionChanged);
     connect(mSaveCodeButton, &QPushButton::clicked,
             this, &RoomsPanel::saveCodeRequested);
-    connect(mChatSendButton, &QPushButton::clicked,
-            this, &RoomsPanel::onChatSendClicked);
-    connect(mChatEdit, &QLineEdit::returnPressed,
-            this, &RoomsPanel::onChatSendClicked);
-    connect(mChatEdit, &QLineEdit::textEdited,
-            this, &RoomsPanel::onChatTextEdited);
-
-    mTypingClearTimer = new QTimer{this};
-    mTypingClearTimer->setSingleShot(true);
-    connect(mTypingClearTimer, &QTimer::timeout, this, [this]() {
-        mTypingLabel->clear();
+    connect(mRestrictButton, &QPushButton::clicked,
+            this, &RoomsPanel::onRestrictClicked);
+    connect(mKickButton, &QPushButton::clicked, this, [this]() {
+        QString memberId = selectedMemberId();
+        if (!memberId.isEmpty() && memberId != mSelfId)
+            emit kickRequested(memberId);
     });
 }
 
@@ -442,14 +239,12 @@ void RoomsPanel::setInRoom(const QString &code, const QString &role,
         ? tr("You are the admin of this room.")
         : tr("You are a member of this room."));
     mJoinBox->setVisible(false);
-    mRoomInfoBox->setVisible(true);
-    mMembersBox->setVisible(true);
-    mChatBox->setVisible(true);
-    mChatList->clear();
-    mTypingLabel->clear();
-    mSettingsBox->setVisible(mIsAdmin);
+    mTabs->setVisible(true);
+    mMessagesButton->setVisible(true);
+    setUnreadCount(0);
     setReconnecting(false);
     setSettings(settings);
+    updateMemberActionButtons();
 }
 
 void RoomsPanel::setNotInRoom(const QString &message)
@@ -458,32 +253,59 @@ void RoomsPanel::setNotInRoom(const QString &message)
     mIsAdmin = false;
     mSelfId.clear();
     mRoomCode.clear();
+    mMembers.clear();
     mMembersList->clear();
-    mChatList->clear();
-    mChatEdit->clear();
-    mTypingLabel->clear();
     mProjectLabel->setVisible(false);
     mConnLabel->setVisible(false);
+    mMessagesButton->setVisible(false);
+    setUnreadCount(0);
     mJoinBox->setVisible(true);
     mJoinBox->setEnabled(true);
-    mRoomInfoBox->setVisible(false);
-    mMembersBox->setVisible(false);
-    mChatBox->setVisible(false);
-    mSettingsBox->setVisible(false);
+    mTabs->setVisible(false);
     mStatusLabel->setText(message.isEmpty() ? tr("Not in a room") : message);
 }
 
 void RoomsPanel::setReconnecting(bool reconnecting)
 {
     mConnLabel->setVisible(reconnecting && mInRoom);
-    mChatEdit->setEnabled(!reconnecting);
-    mChatSendButton->setEnabled(!reconnecting);
+}
+
+void RoomsPanel::setUnreadCount(int count)
+{
+    mMessagesButton->setText(count > 0
+        ? tr("Messages (%1)").arg(count)
+        : tr("Messages"));
+}
+
+void RoomsPanel::selectTab(int index)
+{
+    if (index >= 0 && index < mTabs->count())
+        mTabs->setCurrentIndex(index);
+}
+
+void RoomsPanel::focusJoinField()
+{
+    if (mNameEdit->text().trimmed().isEmpty())
+        mNameEdit->setFocus();
+    else
+        mCodeEdit->setFocus();
+}
+
+QString RoomsPanel::languageDisplayName(const QString &language)
+{
+    if (language == "python")
+        return QStringLiteral("Python");
+    if (language == "c")
+        return QStringLiteral("C");
+    return QStringLiteral("C++");
 }
 
 void RoomsPanel::setMembers(const QVector<RoomMemberInfo> &members,
                             const QString &selfId)
 {
     mSelfId = selfId;
+    mMembers = members;
+    QString previousSelection = selectedMemberId();
     mMembersList->clear();
     for (const RoomMemberInfo &member : members) {
         QStringList badges;
@@ -493,21 +315,27 @@ void RoomsPanel::setMembers(const QVector<RoomMemberInfo> &members,
             badges << tr("You");
         if (member.away)
             badges << tr("Away");
-        QString text = member.name;
-        if (!badges.isEmpty())
-            text += " · " + badges.join(" · ");
+        if (member.restricted)
+            badges << tr("Restricted");
+        badges << languageDisplayName(member.doc.language);
+        QString text = member.name + " · " + badges.join(" · ");
         auto *item = new QListWidgetItem{text, mMembersList};
         item->setData(Qt::UserRole, member.id);
         item->setIcon(dotIcon(member.away ? QColor{"#b0b0b0"}
                                           : memberColor(member.id)));
         if (member.away)
             item->setForeground(QBrush{QColor{"#888888"}});
-        item->setToolTip(member.away
+        QString tip = member.away
             ? tr("Connection lost — the seat is held for a while")
-            : member.role == "admin"
-                ? tr("Admin — double-click to view the code")
-                : tr("Double-click to view the code"));
+            : tr("Double-click to view the code");
+        if (member.restricted)
+            tip += "\n" + tr("Restricted by the admin: cannot edit other "
+                             "members' code.");
+        item->setToolTip(tip);
+        if (member.id == previousSelection)
+            mMembersList->setCurrentItem(item);
     }
+    updateMemberActionButtons();
 }
 
 QColor RoomsPanel::memberColor(const QString &memberId)
@@ -524,74 +352,40 @@ QString RoomsPanel::selectedMemberId() const
     return memberIdOf(mMembersList->currentItem());
 }
 
-void RoomsPanel::setChatLog(const QVector<RoomChatMessage> &log,
-                            const QString &selfId)
+const RoomMemberInfo *RoomsPanel::memberInfo(const QString &memberId) const
 {
-    mSelfId = selfId;
-    mChatList->clear();
-    for (const RoomChatMessage &message : log)
-        appendChatMessage(message.fromId, message.fromName, message.text,
-                          message.ts);
-    mChatList->scrollToBottom();
+    for (const RoomMemberInfo &member : mMembers)
+        if (member.id == memberId)
+            return &member;
+    return nullptr;
 }
 
-void RoomsPanel::appendChatMessage(const QString &fromId,
-                                   const QString &fromName,
-                                   const QString &text, qint64 ts)
+void RoomsPanel::updateMemberActionButtons()
 {
-    auto *item = new QListWidgetItem{mChatList};
-    item->setFlags(item->flags() & ~Qt::ItemIsEditable);
-    item->setData(ChatTextRole, text);
-    item->setData(ChatNameRole, fromName);
-    item->setData(ChatOwnRole, fromId == mSelfId);
-    item->setData(ChatColorRole, memberColor(fromId));
-    item->setData(ChatTimeRole, ts > 0
-        ? QDateTime::fromMSecsSinceEpoch(ts).toString("h:mm AP")
-        : QString());
-    mChatList->scrollToBottom();
-    // The sender clearly stopped typing once their message lands.
-    if (fromId != mSelfId) {
-        mTypingClearTimer->stop();
-        mTypingLabel->clear();
-    }
+    const RoomMemberInfo *selected = memberInfo(selectedMemberId());
+    bool canActOn = mInRoom && mIsAdmin && selected
+            && selected->id != mSelfId && selected->role != "admin";
+    mRestrictButton->setVisible(mIsAdmin);
+    mKickButton->setVisible(mIsAdmin);
+    mRestrictButton->setEnabled(canActOn);
+    mKickButton->setEnabled(canActOn);
+    if (selected && selected->restricted)
+        mRestrictButton->setText(tr("Allow editing"));
+    else
+        mRestrictButton->setText(tr("Restrict editing"));
 }
 
-void RoomsPanel::showPeerTyping(const QString &fromName)
+void RoomsPanel::onMemberSelectionChanged()
 {
-    mTypingLabel->setText(tr("%1 is typing…").arg(fromName));
-    mTypingClearTimer->start(2800);
+    updateMemberActionButtons();
 }
 
-void RoomsPanel::onChatSendClicked()
+void RoomsPanel::onRestrictClicked()
 {
-    QString text = mChatEdit->text().trimmed();
-    if (text.isEmpty())
+    const RoomMemberInfo *selected = memberInfo(selectedMemberId());
+    if (!selected)
         return;
-    mChatEdit->clear();
-    emit chatSendRequested(text);
-}
-
-void RoomsPanel::onChatTextEdited(const QString &text)
-{
-    Q_UNUSED(text);
-    // At most one typing ping per 2 seconds while typing.
-    if (!mTypingSendTimer.isValid() || mTypingSendTimer.elapsed() >= 2000) {
-        mTypingSendTimer.start();
-        emit chatTyping();
-    }
-}
-
-void RoomsPanel::onCopyCodeClicked()
-{
-    if (mRoomCode.isEmpty())
-        return;
-    QApplication::clipboard()->setText(mRoomCode);
-    QPushButton *button = mCopyCodeButton;
-    button->setText(tr("Copied ✓"));
-    // The context object guards the restore if the button dies first.
-    QTimer::singleShot(1500, button, [button]() {
-        button->setText(tr("Copy"));
-    });
+    emit restrictRequested(selected->id, !selected->restricted);
 }
 
 void RoomsPanel::setSettings(const RoomSettings &settings)
@@ -600,6 +394,12 @@ void RoomsPanel::setSettings(const RoomSettings &settings)
     mPeerEditCheck->setChecked(settings.membersCanEditEachOther);
     if (mProjectEdit->text() != settings.projectName)
         mProjectEdit->setText(settings.projectName);
+    // Admins edit; members see the same values read-only.
+    mSettingsNote->setVisible(!mIsAdmin);
+    mProjectEdit->setReadOnly(!mIsAdmin);
+    mMaxMembersSpin->setEnabled(mIsAdmin);
+    mPeerEditCheck->setEnabled(mIsAdmin);
+    mApplySettingsButton->setVisible(mIsAdmin);
     if (settings.projectName.isEmpty()) {
         mProjectLabel->setVisible(false);
     } else {
@@ -657,14 +457,22 @@ void RoomsPanel::onMemberContextMenu(const QPoint &pos)
     QString memberId = memberIdOf(item);
     if (memberId.isEmpty() || memberId == mSelfId)
         return;
+    const RoomMemberInfo *info = memberInfo(memberId);
     QMenu menu{this};
     QAction *openAction = menu.addAction(tr("Open code"));
+    QAction *restrictAction = nullptr;
     QAction *kickAction = nullptr;
-    if (mInRoom && mIsAdmin)
+    if (mInRoom && mIsAdmin && info && info->role != "admin") {
+        restrictAction = menu.addAction(info->restricted
+            ? tr("Allow editing")
+            : tr("Restrict editing"));
         kickAction = menu.addAction(tr("Kick"));
+    }
     QAction *chosen = menu.exec(mMembersList->mapToGlobal(pos));
     if (chosen == openAction)
         emit openMemberRequested(memberId);
+    else if (restrictAction && chosen == restrictAction)
+        emit restrictRequested(memberId, !(info && info->restricted));
     else if (kickAction && chosen == kickAction)
         emit kickRequested(memberId);
 }
@@ -676,4 +484,18 @@ void RoomsPanel::onApplySettingsClicked()
     settings.membersCanEditEachOther = mPeerEditCheck->isChecked();
     settings.projectName = mProjectEdit->text().trimmed();
     emit applySettingsRequested(settings);
+}
+
+void RoomsPanel::onCopyCodeClicked()
+{
+    if (mRoomCode.isEmpty())
+        return;
+    QApplication::clipboard()->setText(mRoomCode);
+    QPushButton *button = mCopyCodeButton;
+    button->setText(tr("Copied ✓"));
+    // The button pointer is the context object, so the restore is
+    // dropped automatically if the button dies first.
+    QTimer::singleShot(1500, button, [button]() {
+        button->setText(tr("Copy"));
+    });
 }

@@ -66,6 +66,9 @@ enum class RunType {
 class EditorManager;
 class QDockWidget;
 class RoomsPanel;
+class RoomChatWindow;
+class WelcomePage;
+class QAction;
 class QLabel;
 class QComboBox;
 class CompilerManager;
@@ -140,6 +143,10 @@ public:
     void updateCompileActions();
     void updateCompileActions(const Editor* e);
     void updateEditorColorSchemes();
+    // Dev by Sufyan: tint the app icons with the active editor color
+    // scheme's accent (anime schemes only); reloads icons live when
+    // the scheme changes after startup.
+    void refreshIconTint();
     void updateFileTypeActions(const Editor *e);
     void updateCompilerSet();
     void updateCompilerSet(const Editor* e);
@@ -349,6 +356,15 @@ private:
                             const QString &text, qint64 ts);
     void onRoomMemberTyping(const QString &fromId, const QString &fromName);
     void onRoomSaveCodeRequested();
+    // v1.3.0: Messages popup, member restriction, welcome page
+    void showRoomChatWindow();
+    void onRoomRestrictRequested(const QString &memberId, bool restricted);
+    void onRoomMemberRestricted(const QString &targetId, bool restricted);
+    void updateChatUnreadBadge();
+    void setupWelcomePage();
+    void updateWelcomeVisibility();
+    void onWelcomeNewDocument();
+    void selectRoomsTab(int index);
     void buildContextMenus();
     void buildEncodingMenu();
     void buildNewlineMenu();
@@ -948,6 +964,7 @@ private slots:
 private:
     Ui::MainWindow *ui;
     bool mFullInitialized;
+    bool mIconTintLive = false;
     EditorManager *mEditorManager;
     // Rooms (Dev by Sufyan)
     RoomClient *mRoomClient = nullptr;
@@ -962,6 +979,12 @@ private:
     QSet<Editor *> mRoomWatchedEditors;
     QSet<Editor *> mRoomApplyingRemote;
     QMap<QString, QTimer *> mRoomSyncTimers;
+    // Rooms v1.3.0: chat popup, toolbar action, welcome page
+    RoomChatWindow *mRoomChatWindow = nullptr;
+    QAction *mMessagesAction = nullptr;
+    int mChatUnread = 0;
+    WelcomePage *mWelcomePage = nullptr;
+    QTimer *mWelcomeTimer = nullptr;
     QLabel *mFileInfoStatus;
     LabelWithMenu *mFileEncodingStatus;
     QLabel *mFileModeStatus;

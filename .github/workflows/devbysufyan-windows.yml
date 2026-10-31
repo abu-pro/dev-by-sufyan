@@ -91,6 +91,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "windeployqt failed" }
 
           Copy-Item LICENSE (Join-Path $DeployDir "LICENSE") -Force
+          # v1.3.0: ship the logo as a standalone icon file too. The
+          # Inno shortcuts point at {app}\devbysufyan.ico explicitly,
+          # so they no longer depend on the exe-path icon cache (which
+          # kept showing the old red-panda icon after upgrades).
+          Copy-Item "RedPandaIDE\images\devcpp.ico" (Join-Path $DeployDir "devbysufyan.ico") -Force
+          if (-not (Test-Path (Join-Path $DeployDir "devbysufyan.ico"))) { throw "devbysufyan.ico missing after staging" }
           Get-ChildItem $DeployDir | Select-Object Name, Length
 
       # v1.2.0: bundle a real compiler. v1.1.0 shipped the IDE alone, so
@@ -157,27 +163,28 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.2.0 release with the installer and the
+      # Publishes (or updates) the v1.3.0 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.0
-          name: Dev by Sufyan — Red Panda Edition (v1.2.0)
+          tag_name: v1.3.0
+          name: Dev by Sufyan — Red Panda Edition (v1.3.0)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.2.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.3.0)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.2.0 — the fix & professionalize release:
-            - **Compiler built in** — the setup and the portable folder now bundle the MinGW GCC 14.2 compiler, so **Compile & Run works out of the box**, no configuration needed
-            - **WhatsApp-style room chat** — chat bubbles in the Rooms panel (and matching chat in the Android app and the web version), with history and typing indicators
-            - **Stable rooms** — a dropped connection no longer kills the room: your seat is held and the app reconnects and resumes automatically; members show as "Away" while gone
-            - **Professional Rooms panel** — clear Room / Members / Chat sections, role badges (Admin / Away), and a big room code with a Copy button
+            New in v1.3.0 — the 10/10 polish release:
+            - **Welcome screen** — an anime-style start page with rotating artwork, quick tiles (New Document with save-first flow, Open, New Project, Rooms, Theme, Font) and the app's real hotkeys
+            - **Messages popup** — room chat now lives in its own window (Messages button in the Rooms panel, the Rooms menu and the toolbar), and it **opens by itself when someone messages you**, with an unread count on the buttons
+            - **Tabbed Rooms panel** — Room / Members / Settings tabs instead of one long panel; settings are visible read-only to members too
+            - **Per-member restrictions** — the admin can restrict a specific member from editing other people's code (enforced by the server, shown with a Restricted badge everywhere)
+            - **Icon fix** — shortcuts now read a dedicated `devbysufyan.ico` file, so the desktop shortcut shows the real logo instead of the old red-panda icon
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed
-            - `DevBySufyan.apk` — the Android app (added by the Android build; signed with the project's fixed key from this version on, so future updates install in place)
+            - `DevBySufyan.apk` — the Android app (added by the Android build; signed with the project's fixed key, installs over v1.2.0)
 
             Rooms: create or join a room with a 4-digit code and code together live — PC and phone share the same rooms. The admin can view and edit everyone's code; the admin's own code stays view-only for everyone else.
 

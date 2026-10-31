@@ -238,9 +238,56 @@ void IconsManager::setIcon(QPushButton *btn, IconName iconName) const
     btn->setIcon(getIcon(iconName));
 }
 
+void IconsManager::setIconTint(const QColor &color)
+{
+    if (mIconTint == color)
+        return;
+    mIconTint = color;
+    // Parser pixmaps rendered at custom sizes are cached per
+    // (icon set, size) only — drop the cache so they re-render
+    // with the new tint on next use.
+    mCachedParserIconSet.clear();
+    mCachedParserIconSize = -1;
+    mCachedParserIconPixmaps.clear();
+}
+
+QColor IconsManager::iconTint() const
+{
+    return mIconTint;
+}
+
 IconsManager::PPixmap IconsManager::createSVGIcon(const QString &filename, int width, int height)
 {
-    QSvgRenderer renderer(filename);
+    QSvgRenderer renderer;
+    bool loaded = false;
+    if (mIconTint.isValid()) {
+        // Dev by Sufyan: recolor the icon set's dominant "ink" color
+        // with the active color scheme's accent before rendering.
+        // Small semantic colors inside the icons (run green, error
+        // red, folder yellow...) are deliberately left untouched.
+        QFile file(filename);
+        if (file.open(QFile::ReadOnly)) {
+            QString svg = QString::fromUtf8(file.readAll());
+            const QString tint = mIconTint.name();
+            if (filename.contains("/contrast/")) {
+                // The contrast set's ink is white.
+                svg.replace("#ffffff", tint, Qt::CaseInsensitive);
+            } else if (filename.contains("/bluesky/")) {
+                // The bluesky set's ink is its brand blue (+ black
+                // details and a pale-blue shade of the same ink).
+                svg.replace("#1f74fe", tint, Qt::CaseInsensitive);
+                svg.replace("#90b9ff", mIconTint.lighter(155).name(),
+                            Qt::CaseInsensitive);
+                svg.replace("#000000", tint, Qt::CaseInsensitive);
+            } else {
+                // newlook (and custom sets): the ink is black.
+                svg.replace("#000000", tint, Qt::CaseInsensitive);
+            }
+            loaded = renderer.load(svg.toUtf8());
+        }
+    }
+    if (!loaded)
+        renderer.load(filename);
     if (!renderer.isValid())
         return mDefaultIconPixmap;
     qreal dpr=qApp->devicePixelRatio();

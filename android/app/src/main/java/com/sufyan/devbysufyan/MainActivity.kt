@@ -81,6 +81,7 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
     val members = mutableStateListOf<Member>()
     var settings by mutableStateOf(RoomSettings())
     val chat = mutableStateListOf<ChatMsg>()
+    var chatUnread by mutableStateOf(0) // v1.3.0: messages seen while in the editor
     var typingText by mutableStateOf("")
     var viewingId by mutableStateOf("") // whose doc the editor shows; "" = solo
     var connState by mutableStateOf(RoomClient.ConnState.IDLE)
@@ -100,6 +101,9 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
         val target = member(targetId) ?: return targetId == selfId
         if (targetId == selfId) return true
         if (isAdmin()) return true
+        // v1.3.0 mirror of the server rule: a restricted member cannot
+        // edit anyone else's code, even with peer editing on.
+        if (member(selfId)?.restricted == true) return false
         return settings.membersCanEditEachOther && target.role != "admin"
     }
 
@@ -119,6 +123,7 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
         inRoom = false
         selfId = ""; role = "member"; roomCode = ""
         members.clear(); chat.clear(); typingText = ""
+        chatUnread = 0
         viewingId = ""
         connState = RoomClient.ConnState.IDLE
         screen = Screen.HOME
@@ -188,6 +193,19 @@ class AppState(private val activity: ComponentActivity) : RoomClient.Listener {
         chat.add(msg)
         if (chat.size > 200) chat.removeRange(0, chat.size - 200)
         clearTyping(msg.fromId)
+        // v1.3.0: badge the room screen's chat header when a message from
+        // someone else lands while the user is viewing code (no forced
+        // navigation on mobile).
+        if (msg.fromId != selfId && screen != Screen.ROOM) chatUnread++
+    }
+
+    override fun onMemberRestricted(targetId: String, restricted: Boolean) = post {
+        val idx = this.members.indexOfFirst { it.id == targetId }
+        if (idx >= 0) this.members[idx] = this.members[idx].copy(restricted = restricted)
+        if (targetId == selfId) {
+            toast(if (restricted) "The admin has restricted you from editing other members' code."
+                  else "The admin lifted your editing restriction.")
+        }
     }
 
     override fun onTyping(fromId: String, fromName: String) = post {

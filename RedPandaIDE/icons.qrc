@@ -15,6 +15,16 @@
         <file>images/associations/rc.ico</file>
         <file>images/associations/template.ico</file>
         <file>images/dark-close.svg</file>
+        <file>images/welcome-art-01.jpg</file>
+        <file>images/welcome-art-02.jpg</file>
+        <file>images/welcome-art-03.jpg</file>
+        <file>images/welcome-art-04.jpg</file>
+        <file>images/welcome-art-05.jpg</file>
+        <file>images/welcome-art-06.jpg</file>
+        <file>images/welcome-art-07.jpg</file>
+        <file>images/welcome-art-08.jpg</file>
+        <file>images/welcome-art-09.jpg</file>
+        <file>images/welcome-art-10.jpg</file>
     </qresource>
     <qresource prefix="/demos">
         <file alias="dark.png">images/demos/dark.png</file>

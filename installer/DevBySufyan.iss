@@ -8,7 +8,7 @@
 ; root (OutputDir below). All paths are relative to this script's folder.
 
 #define AppName "Dev by Sufyan"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 #define AppPublisher "Abu Sufyan"
 #define AppExeName "DevBySufyan.exe"
 
@@ -28,7 +28,7 @@ WizardStyle=modern
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}
-UninstallDisplayIcon={app}\{#AppExeName}
+UninstallDisplayIcon={app}\devbysufyan.ico
 SetupIconFile=..\RedPandaIDE\images\devcpp.ico
 
 [Languages]
@@ -48,9 +48,14 @@ Name: "{app}\config"; Permissions: users-full
 Source: "..\deploy\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"
+; v1.3.0 icon fix: shortcuts must NOT take their icon from the exe —
+; Windows caches the icon by exe path, so after an upgrade the desktop
+; shortcut kept showing the old red-panda artwork. The logo also ships
+; as a standalone file {app}\devbysufyan.ico (staged into deploy\ by
+; the workflow) and every shortcut points at it explicitly.
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; IconFilename: "{app}\devbysufyan.ico"; IconIndex: 0
 Name: "{group}\{cm:UninstallProgram,{#AppName}}"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon; IconFilename: "{app}\devbysufyan.ico"; IconIndex: 0
 
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(AppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent

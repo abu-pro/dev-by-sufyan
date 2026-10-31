@@ -17,6 +17,7 @@
 #ifndef ICONSMANAGER_H
 #define ICONSMANAGER_H
 
+#include <QColor>
 #include <QMap>
 #include <QObject>
 #include <QPixmap>
@@ -227,6 +228,12 @@ public:
     QString iconSet() const;
     void setIconSet(const QString &newIconSet);
 
+    // Dev by Sufyan: when an anime editor color scheme is active, the
+    // icons are rendered with the scheme's accent color as their ink
+    // (see createSVGIcon). An invalid color disables the tint.
+    void setIconTint(const QColor &color);
+    QColor iconTint() const;
+
 private:
     void updateMakeDisabledIconDarker(const QString& iconset);
     void updateParserIcons(QMap<IconName,PPixmap> &iconPixmaps, const QString& iconSet, int size);
@@ -249,6 +256,7 @@ private:
     DirSettings *mDirSettings;
     QString mLanguage;
     bool mMakeDisabledIconDarker;
+    QColor mIconTint;
 };
 
 #endif // ICONSMANAGER_H

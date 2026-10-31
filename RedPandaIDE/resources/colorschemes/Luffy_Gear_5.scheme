@@ -1,0 +1,265 @@
+{
+    "Active Breakpoint": {
+        "background": "#558B5CF6",
+        "bold": false,
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Active Line": {
+        "background": "#ffECE8DA",
+        "bold": false,
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Assembler": {
+        "bold": false,
+        "foreground": "#ffE23B3B",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Breakpoint": {
+        "background": "#ffE23B3B",
+        "bold": false,
+        "foreground": "#ffFFFFFF",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Character": {
+        "bold": true,
+        "foreground": "#ffC77400",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Class": {
+        "bold": false,
+        "foreground": "#ff7C4DFF",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Comment": {
+        "bold": false,
+        "foreground": "#ff8B93A3",
+        "italic": true,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Current Highlighted Word": {
+        "background": "#1F35A7FF",
+        "bold": false,
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Editor Text": {
+        "background": "#ffF7F5EF",
+        "bold": false,
+        "foreground": "#ff14181F",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Error": {
+        "background": "#ffFBDADA",
+        "bold": false,
+        "foreground": "#ffD92020",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Escape sequences": {
+        "bold": false,
+        "foreground": "#ff8B5CF6",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Float": {
+        "bold": false,
+        "foreground": "#ff1B86D9",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Fold Line": {
+        "bold": false,
+        "foreground": "#ffC9C4B4",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Function": {
+        "bold": false,
+        "foreground": "#ff1F8FE0",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Global variable": {
+        "bold": false,
+        "foreground": "#ff14181F",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Gutter": {
+        "background": "#ffEFECE1",
+        "bold": false,
+        "foreground": "#ff9A958A",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Gutter Active Line": {
+        "bold": false,
+        "foreground": "#ff14181F",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Hexadecimal": {
+        "bold": false,
+        "foreground": "#ff1B86D9",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Identifier": {
+        "bold": false,
+        "foreground": "#ff28303D",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Illegal Char": {
+        "bold": false,
+        "foreground": "#ffD92020",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Indent Guide Line": {
+        "bold": false,
+        "foreground": "#ffCFC9BA",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Local Variable": {
+        "bold": false,
+        "foreground": "#ff14181F",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Number": {
+        "bold": false,
+        "foreground": "#ff1B86D9",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Octal": {
+        "bold": false,
+        "foreground": "#ff1B86D9",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Preprocessor": {
+        "bold": false,
+        "foreground": "#ff8B5CF6",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Reserve Word for Types": {
+        "bold": true,
+        "foreground": "#ff8B5CF6",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Reserved Word": {
+        "bold": true,
+        "foreground": "#ffE23B3B",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Selected text": {
+        "background": "#5535A7FF",
+        "bold": false,
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Space": {
+        "bold": false,
+        "foreground": "#26000000",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "String": {
+        "bold": false,
+        "foreground": "#ffC77400",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Symbol": {
+        "bold": true,
+        "foreground": "#ff5A6472",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Variable": {
+        "bold": false,
+        "foreground": "#ff14181F",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "Warning": {
+        "bold": false,
+        "foreground": "#ffC77400",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "brace/parenthesis/bracket level 1": {
+        "bold": false,
+        "foreground": "#ffE23B3B",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "brace/parenthesis/bracket level 2": {
+        "bold": false,
+        "foreground": "#ff1B86D9",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "brace/parenthesis/bracket level 3": {
+        "bold": false,
+        "foreground": "#ff8B5CF6",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    },
+    "brace/parenthesis/bracket level 4": {
+        "bold": false,
+        "foreground": "#ffC77400",
+        "italic": false,
+        "strikeout": false,
+        "underlined": false
+    }
+}

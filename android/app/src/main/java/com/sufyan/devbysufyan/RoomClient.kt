@@ -13,7 +13,7 @@ import java.util.concurrent.TimeUnit
 /** A member's code document, exactly as the room server models it. */
 data class RoomDoc(var language: String, var code: String, var version: Int = 0)
 
-data class Member(val id: String, val name: String, val role: String, var doc: RoomDoc, var away: Boolean = false)
+data class Member(val id: String, val name: String, val role: String, var doc: RoomDoc, var away: Boolean = false, var restricted: Boolean = false)
 
 data class ChatMsg(val fromId: String, val fromName: String, val text: String, val ts: Long)
 
@@ -47,7 +47,8 @@ fun memberFromJson(o: JSONObject): Member = Member(
     name = o.optString("name"),
     role = o.optString("role", "member"),
     doc = docFromJson(o.optJSONObject("doc") ?: JSONObject()),
-    away = o.optBoolean("away", false)
+    away = o.optBoolean("away", false),
+    restricted = o.optBoolean("restricted", false)
 )
 
 fun chatFromJson(o: JSONObject): ChatMsg = ChatMsg(
@@ -88,6 +89,7 @@ class RoomClient(private val listener: Listener) {
         fun onSettingsChanged(settings: RoomSettings)
         fun onChat(msg: ChatMsg)
         fun onTyping(fromId: String, fromName: String)
+        fun onMemberRestricted(targetId: String, restricted: Boolean)
         fun onKicked(message: String)
         fun onRoomClosed(message: String)
         fun onResumeFailed(message: String)
@@ -256,6 +258,7 @@ class RoomClient(private val listener: Listener) {
             }
             "chat_msg" -> listener.onChat(chatFromJson(m))
             "member_typing" -> listener.onTyping(m.optString("fromId"), m.optString("fromName"))
+            "member_restricted" -> listener.onMemberRestricted(m.optString("targetId"), m.optBoolean("restricted", false))
             "kicked" -> {
                 inRoom = false; seatCode = ""; seatToken = ""; pendingFirst = null
                 cancelReconnect()
@@ -297,6 +300,12 @@ class RoomClient(private val listener: Listener) {
     fun kick(targetId: String) {
         if (!inRoom) return
         send(JSONObject().put("type", "kick").put("targetId", targetId))
+    }
+
+    /** v1.3.0: admin-only — restrict a member from editing others' code. */
+    fun setMemberRestricted(targetId: String, restricted: Boolean) {
+        if (!inRoom) return
+        send(JSONObject().put("type", "member_restrict").put("targetId", targetId).put("restricted", restricted))
     }
 
     /** Rooms chat: the server echoes our own message back to us. */

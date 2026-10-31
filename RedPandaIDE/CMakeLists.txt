@@ -66,6 +66,8 @@ target_qt_plain_cpp(RedPandaIDE
 target_moc_classes(RedPandaIDE
     src/rooms/roomclient
     src/rooms/roomspanel
+    src/rooms/roomchatwindow
+    src/rooms/welcomepage
     src/caretlist
     src/codesnippetsmanager
     src/cpprefacter

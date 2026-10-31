@@ -26,6 +26,8 @@
 #include "../mainwindow.h"
 #include "ui_mainwindow.h"
 
+#include <QAction>
+#include <QApplication>
 #include <QDir>
 #include <QDockWidget>
 #include <QFile>
@@ -36,13 +38,17 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTimer>
+#include <QToolBar>
 
 #include "../editor.h"
 #include "../editormanager.h"
 #include "../settings.h"
+#include "../settingsdialog/settingsdialog.h"
 #include "qsynedit/document.h"
 #include "roomclient.h"
+#include "roomchatwindow.h"
 #include "roomspanel.h"
+#include "welcomepage.h"
 
 namespace {
 
@@ -100,10 +106,72 @@ void MainWindow::setupRooms()
     addDockWidget(Qt::LeftDockWidgetArea, mRoomsDock);
     tabifyDockWidget(ui->dockExplorer, mRoomsDock);
 
+    // v1.3.0: the room chat is a standalone popup window, owned here.
+    mRoomChatWindow = new RoomChatWindow(this);
+    mRoomChatWindow->hide();
+    connect(mRoomChatWindow, &RoomChatWindow::sendRequested,
+            this, &MainWindow::onRoomChatSendRequested);
+    connect(mRoomChatWindow, &RoomChatWindow::typing,
+            this, &MainWindow::onRoomChatTyping);
+    connect(mRoomChatWindow, &RoomChatWindow::becameVisible, this, [this]() {
+        // Only clear the badge when the user can actually see the popup;
+        // an auto-open behind an inactive main window keeps the count
+        // until the app comes to the front.
+        if (isActiveWindow()) {
+            mChatUnread = 0;
+            updateChatUnreadBadge();
+        }
+    });
+    connect(qApp, &QApplication::applicationStateChanged, this,
+            [this](Qt::ApplicationState state) {
+        if (state == Qt::ApplicationActive && mRoomChatWindow
+                && mRoomChatWindow->isVisible() && mChatUnread > 0) {
+            mChatUnread = 0;
+            updateChatUnreadBadge();
+        }
+    });
+
+    // Toolbar Messages button (with unread count in its text).
+    mMessagesAction = new QAction(tr("Messages"), this);
+    mMessagesAction->setToolTip(tr("Open the room chat window"));
+    ui->toolbarMain->addAction(mMessagesAction);
+    connect(mMessagesAction, &QAction::triggered,
+            this, &MainWindow::showRoomChatWindow);
+
+    // Rooms menu: chat + every panel tab reachable from the top menu,
+    // then the room actions (v1.3.0 restructure).
     QMenu *roomsMenu = new QMenu(tr("Rooms"), this);
-    roomsMenu->addAction(mRoomsDock->toggleViewAction());
+    roomsMenu->addAction(tr("Messages"), this, &MainWindow::showRoomChatWindow);
     roomsMenu->addSeparator();
+    QAction *roomTabAction = roomsMenu->addAction(tr("Room"));
+    connect(roomTabAction, &QAction::triggered, this,
+            [this]() { selectRoomsTab(0); });
+    QAction *membersTabAction = roomsMenu->addAction(tr("Members"));
+    connect(membersTabAction, &QAction::triggered, this,
+            [this]() { selectRoomsTab(1); });
+    QAction *settingsTabAction = roomsMenu->addAction(tr("Project && Settings"));
+    connect(settingsTabAction, &QAction::triggered, this,
+            [this]() { selectRoomsTab(2); });
+    roomsMenu->addSeparator();
+    QAction *createAction = roomsMenu->addAction(tr("Create Room"));
+    connect(createAction, &QAction::triggered, this, [this]() {
+        mRoomsDock->show();
+        mRoomsDock->raise();
+        if (mRoomClient && mRoomClient->isInRoom())
+            mRoomsPanel->selectTab(0);
+        else
+            mRoomsPanel->focusJoinField();
+    });
+    QAction *joinAction = roomsMenu->addAction(tr("Join Room"));
+    connect(joinAction, &QAction::triggered, this, [this]() {
+        mRoomsDock->show();
+        mRoomsDock->raise();
+        if (!(mRoomClient && mRoomClient->isInRoom()))
+            mRoomsPanel->focusJoinField();
+    });
     roomsMenu->addAction(tr("Leave Room"), this, &MainWindow::onRoomLeaveRequested);
+    roomsMenu->addSeparator();
+    roomsMenu->addAction(mRoomsDock->toggleViewAction());
     ui->menubar->insertMenu(ui->menuHelp->menuAction(), roomsMenu);
 
     connect(mRoomsPanel, &RoomsPanel::createRequested,
@@ -116,12 +184,12 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomOpenMemberRequested);
     connect(mRoomsPanel, &RoomsPanel::kickRequested,
             this, &MainWindow::onRoomKickRequested);
+    connect(mRoomsPanel, &RoomsPanel::restrictRequested,
+            this, &MainWindow::onRoomRestrictRequested);
     connect(mRoomsPanel, &RoomsPanel::applySettingsRequested,
             this, &MainWindow::onRoomApplySettingsRequested);
-    connect(mRoomsPanel, &RoomsPanel::chatSendRequested,
-            this, &MainWindow::onRoomChatSendRequested);
-    connect(mRoomsPanel, &RoomsPanel::chatTyping,
-            this, &MainWindow::onRoomChatTyping);
+    connect(mRoomsPanel, &RoomsPanel::messagesRequested,
+            this, &MainWindow::showRoomChatWindow);
     connect(mRoomsPanel, &RoomsPanel::saveCodeRequested,
             this, &MainWindow::onRoomSaveCodeRequested);
 
@@ -151,6 +219,8 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomChatReceived);
     connect(mRoomClient, &RoomClient::memberTyping,
             this, &MainWindow::onRoomMemberTyping);
+    connect(mRoomClient, &RoomClient::memberRestricted,
+            this, &MainWindow::onRoomMemberRestricted);
     connect(mRoomClient, &RoomClient::kicked,
             this, &MainWindow::onRoomKicked);
     connect(mRoomClient, &RoomClient::roomClosed,
@@ -159,6 +229,173 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomError);
     connect(mRoomClient, &RoomClient::disconnected,
             this, &MainWindow::onRoomDisconnected);
+
+    setupWelcomePage();
+}
+
+// ---------------------------------------------------------------------------
+// v1.3.0: Messages popup, unread badge, welcome page
+// ---------------------------------------------------------------------------
+
+void MainWindow::updateChatUnreadBadge()
+{
+    if (mMessagesAction)
+        mMessagesAction->setText(mChatUnread > 0
+            ? tr("Messages (%1)").arg(mChatUnread)
+            : tr("Messages"));
+    if (mRoomsPanel)
+        mRoomsPanel->setUnreadCount(mChatUnread);
+}
+
+void MainWindow::showRoomChatWindow()
+{
+    if (!mRoomClient || !mRoomClient->isInRoom()) {
+        mRoomsDock->show();
+        mRoomsDock->raise();
+        mRoomsPanel->showMessage(
+                    tr("Join a room first — Messages is the room chat."));
+        return;
+    }
+    mChatUnread = 0;
+    updateChatUnreadBadge();
+    mRoomChatWindow->show();
+    mRoomChatWindow->raise();
+    mRoomChatWindow->activateWindow();
+}
+
+void MainWindow::selectRoomsTab(int index)
+{
+    mRoomsDock->show();
+    mRoomsDock->raise();
+    mRoomsPanel->selectTab(index);
+}
+
+void MainWindow::onRoomRestrictRequested(const QString &memberId,
+                                         bool restricted)
+{
+    if (mRoomClient)
+        mRoomClient->setMemberRestricted(memberId, restricted);
+}
+
+void MainWindow::onRoomMemberRestricted(const QString &targetId,
+                                        bool restricted)
+{
+    QString name;
+    for (RoomMemberInfo &member : mRoomMembers)
+        if (member.id == targetId) {
+            member.restricted = restricted;
+            name = member.name;
+        }
+    if (mRoomsPanel)
+        mRoomsPanel->setMembers(mRoomMembers, mRoomClient->selfId());
+    applyRoomEditability();
+    if (!name.isEmpty())
+        statusBar()->showMessage(restricted
+            ? tr("%1 can no longer edit other members' code.").arg(name)
+            : tr("%1 can edit other members' code again.").arg(name), 5000);
+}
+
+void MainWindow::setupWelcomePage()
+{
+    mWelcomePage = new WelcomePage(ui->splitterEditorPanel);
+    mWelcomePage->setVersionText(tr("Version 1.3.0"));
+    auto shortcutOf = [](QAction *action) {
+        return action ? action->shortcut().toString() : QString();
+    };
+    mWelcomePage->setHotkeysText(
+                tr("Hotkeys — New: %1 · Open: %2 · Save: %3 · Compile: %4 · Run: %5")
+                .arg(shortcutOf(ui->actionNew), shortcutOf(ui->actionOpen),
+                     shortcutOf(ui->actionSave), shortcutOf(ui->actionCompile),
+                     shortcutOf(ui->actionRun)));
+    connect(mWelcomePage, &WelcomePage::newDocumentRequested,
+            this, &MainWindow::onWelcomeNewDocument);
+    connect(mWelcomePage, &WelcomePage::openDocumentRequested, this, [this]() {
+        ui->actionOpen->trigger();
+    });
+    connect(mWelcomePage, &WelcomePage::newProjectRequested, this, [this]() {
+        ui->actionNew_Project->trigger();
+    });
+    connect(mWelcomePage, &WelcomePage::roomsRequested, this, [this]() {
+        mRoomsDock->show();
+        mRoomsDock->raise();
+    });
+    connect(mWelcomePage, &WelcomePage::themeRequested, this, [this]() {
+        changeOptions(SettingsDialog::tr("Appearance"),
+                      SettingsDialog::tr("Environment"));
+    });
+    connect(mWelcomePage, &WelcomePage::fontRequested, this, [this]() {
+        changeOptions(SettingsDialog::tr("Font"),
+                      SettingsDialog::tr("Editor"));
+    });
+    mWelcomePage->hide();
+    mWelcomeTimer = new QTimer(this);
+    mWelcomeTimer->setInterval(400);
+    connect(mWelcomeTimer, &QTimer::timeout,
+            this, &MainWindow::updateWelcomeVisibility);
+    mWelcomeTimer->start();
+    QTimer::singleShot(0, this, &MainWindow::updateWelcomeVisibility);
+}
+
+void MainWindow::updateWelcomeVisibility()
+{
+    if (!mWelcomePage || !mEditorManager)
+        return;
+    if (mEditorManager->pageCount() == 0) {
+        // Nothing open: the welcome page covers the editor area.
+        mWelcomePage->setGeometry(ui->splitterEditorPanel->rect());
+        if (!mWelcomePage->isVisible())
+            mWelcomePage->show();
+        mWelcomePage->raise();
+    } else if (mWelcomePage->isVisible()) {
+        mWelcomePage->hide();
+    }
+}
+
+void MainWindow::onWelcomeNewDocument()
+{
+    // His flow: a new document is saved to disk FIRST, then opened.
+    QString startDir = QStandardPaths::writableLocation(
+                QStandardPaths::DocumentsLocation);
+    QString path = QFileDialog::getSaveFileName(
+                this, tr("New Document — choose where to save it"),
+                startDir + "/main.cpp",
+                tr("C++ files (*.cpp);;C files (*.c);;"
+                   "Python files (*.py);;Text files (*.txt)"));
+    if (path.isEmpty())
+        return;
+    QFileInfo info{path};
+    if (!info.exists() || info.size() == 0) {
+        QFile file{path};
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            statusBar()->showMessage(
+                        tr("Could not create the file %1.").arg(path), 6000);
+            return;
+        }
+        QString language = languageFromFilename(path);
+        if (language == "python")
+            file.write("# Dev by Sufyan\nprint(\"Hello from Dev by Sufyan!\")\n");
+        else if (language == "c")
+            file.write("#include <stdio.h>\n\nint main() {\n"
+                       "    printf(\"Hello from Dev by Sufyan!\\n\");\n"
+                       "    return 0;\n}\n");
+        else if (info.suffix().compare("txt", Qt::CaseInsensitive) != 0)
+            file.write(ROOM_STARTER_CPP);
+        file.close();
+    }
+    Editor *editor = nullptr;
+    try {
+        editor = mEditorManager->newEditor(
+                    path, pSettings->editor().defaultEncoding(),
+                    FileType::None, QString(), false, false);
+    } catch (...) {
+        editor = nullptr;
+    }
+    if (editor)
+        mEditorManager->activeEditor(editor, true);
+    else
+        statusBar()->showMessage(
+                    tr("The file was saved, but could not be opened: %1")
+                    .arg(path), 6000);
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +428,11 @@ bool MainWindow::canEditRoomMember(const RoomMemberInfo &member) const
         return true;
     if (mRoomClient->isAdmin())
         return true;
+    // v1.3.0 mirror of the server rule: a member the admin restricted
+    // may not edit anyone else's code, even with peer editing on.
+    const RoomMemberInfo *self = roomMember(mRoomClient->selfId());
+    if (self && self->restricted)
+        return false;
     return mRoomSettings.membersCanEditEachOther && member.role != "admin";
 }
 
@@ -320,6 +562,13 @@ void MainWindow::endRoom(const QString &message)
     }
     if (mRoomsPanel)
         mRoomsPanel->setNotInRoom(message);
+    // v1.3.0: leaving (or the room closing) closes and clears the popup.
+    if (mRoomChatWindow) {
+        mRoomChatWindow->clearAll();
+        mRoomChatWindow->hide();
+    }
+    mChatUnread = 0;
+    updateChatUnreadBadge();
     statusBar()->showMessage(message, 8000);
 }
 
@@ -457,7 +706,12 @@ void MainWindow::onRoomJoined(const QString &selfId, const QString &role,
     mRoomSettings = settings;
     mRoomsPanel->setInRoom(code, role, settings);
     mRoomsPanel->setMembers(members, mRoomClient->selfId());
-    mRoomsPanel->setChatLog(chatLog, mRoomClient->selfId());
+    if (mRoomChatWindow) {
+        mRoomChatWindow->setSelfId(mRoomClient->selfId());
+        mRoomChatWindow->setChatLog(chatLog);
+    }
+    mChatUnread = 0;
+    updateChatUnreadBadge();
     // After a resume, the fresh snapshot carries everyone's current
     // code: refresh any member editors that are already open. Our own
     // editor is deliberately NOT overwritten — it may hold edits typed
@@ -494,16 +748,32 @@ void MainWindow::onRoomChatReceived(const QString &fromId,
                                     const QString &fromName,
                                     const QString &text, qint64 ts)
 {
-    if (mRoomsPanel)
-        mRoomsPanel->appendChatMessage(fromId, fromName, text, ts);
+    if (mRoomChatWindow)
+        mRoomChatWindow->appendChatMessage(fromId, fromName, text, ts);
+    // v1.3.0: a message from ANOTHER member opens the popup by itself.
+    // Our own messages never trigger anything.
+    if (!mRoomClient || fromId == mRoomClient->selfId() || !mRoomChatWindow)
+        return;
+    bool appActive = isActiveWindow();
+    if (!mRoomChatWindow->isVisible()) {
+        mRoomChatWindow->show();
+        mRoomChatWindow->raise();
+    }
+    if (!appActive) {
+        // The user is in another app: count it as unread and flash the
+        // taskbar entry once.
+        mChatUnread++;
+        updateChatUnreadBadge();
+        QApplication::alert(this);
+    }
 }
 
 void MainWindow::onRoomMemberTyping(const QString &fromId,
                                     const QString &fromName)
 {
     Q_UNUSED(fromId);
-    if (mRoomsPanel)
-        mRoomsPanel->showPeerTyping(fromName);
+    if (mRoomChatWindow)
+        mRoomChatWindow->showPeerTyping(fromName);
 }
 
 void MainWindow::onRoomSaveCodeRequested()
@@ -632,6 +902,8 @@ void MainWindow::onRoomReconnecting()
 {
     if (mRoomsPanel)
         mRoomsPanel->setReconnecting(true);
+    if (mRoomChatWindow)
+        mRoomChatWindow->setComposerEnabled(false);
     statusBar()->showMessage(
                 tr("Connection lost — trying to reconnect…"), 8000);
 }
@@ -640,6 +912,8 @@ void MainWindow::onRoomResumed()
 {
     if (mRoomsPanel)
         mRoomsPanel->setReconnecting(false);
+    if (mRoomChatWindow)
+        mRoomChatWindow->setComposerEnabled(true);
     statusBar()->showMessage(
                 tr("Reconnected — you are back in the room."), 5000);
     // Edits made while offline never reached the server: push our

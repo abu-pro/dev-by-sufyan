@@ -177,6 +177,7 @@ private fun MemberRow(state: AppState, m: Member) {
                 Text(
                     (LANG_LABELS[m.doc.language] ?: m.doc.language) +
                         (if (m.role == "admin") " · Admin" else "") +
+                        (if (m.restricted) " · Restricted" else "") +
                         (if (m.away) " · Away — connection lost" else ""),
                     fontSize = 12.sp, color = Color(0xFF6B7280)
                 )
@@ -187,8 +188,15 @@ private fun MemberRow(state: AppState, m: Member) {
                     state.screen = Screen.EDITOR
                 }) { Text(if (state.canEdit(m.id)) "Open" else "View", color = BrandRed, fontWeight = FontWeight.SemiBold) }
                 if (state.isAdmin()) {
-                    TextButton(onClick = { state.client.kick(m.id) }) {
-                        Text("Kick", color = Color(0xFFB3261E))
+                    Column {
+                        if (m.role != "admin") {
+                            TextButton(onClick = { state.client.setMemberRestricted(m.id, !m.restricted) }) {
+                                Text(if (m.restricted) "Allow" else "Restrict", color = Color(0xFF8D6E00), fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                        TextButton(onClick = { state.client.kick(m.id) }) {
+                            Text("Kick", color = Color(0xFFB3261E))
+                        }
                     }
                 }
             }
@@ -214,6 +222,15 @@ private fun ChatSection(state: AppState) {
     LaunchedEffect(state.chat.size) {
         if (state.chat.isNotEmpty()) listState.animateScrollToItem(state.chat.size - 1)
     }
+    // v1.3.0: the unread badge (messages that arrived while the user was
+    // viewing someone's code) clears once the chat has been on screen
+    // for a moment.
+    LaunchedEffect(state.chatUnread) {
+        if (state.chatUnread > 0) {
+            kotlinx.coroutines.delay(3000)
+            state.chatUnread = 0
+        }
+    }
 
     Card(
         colors = CardDefaults.cardColors(containerColor = Color.White),
@@ -221,8 +238,21 @@ private fun ChatSection(state: AppState) {
         modifier = Modifier.fillMaxWidth()
     ) {
         Column {
-            Text("💬 Room Chat", fontWeight = FontWeight.Bold, fontSize = 17.sp,
-                modifier = Modifier.padding(start = 14.dp, top = 14.dp, end = 14.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 14.dp, top = 14.dp, end = 14.dp)
+            ) {
+                Text("💬 Room Chat", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                if (state.chatUnread > 0) {
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "${state.chatUnread} new",
+                        fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White,
+                        modifier = Modifier.background(WaGreen, RoundedCornerShape(10.dp))
+                            .padding(horizontal = 8.dp, vertical = 3.dp)
+                    )
+                }
+            }
             Spacer(Modifier.height(10.dp))
             // WhatsApp-style conversation area (warm beige background).
             Column(modifier = Modifier.background(WaChatBg).padding(horizontal = 10.dp, vertical = 10.dp)) {

@@ -37,6 +37,7 @@ struct RoomMemberInfo {
     QString name;
     QString role; // "admin" | "member"
     bool away = false; // v1.2.0: connection dropped, seat held for resume
+    bool restricted = false; // v1.3.0: admin barred this member from editing others' code
     RoomDoc doc;
 };
 
@@ -80,6 +81,10 @@ public:
     void sendDocUpdate(const QString &targetId, const RoomDoc &doc);
     void sendSettingsUpdate(const RoomSettings &settings);
     void kick(const QString &targetId);
+    // v1.3.0: admin-only — restrict one member from editing other
+    // members' code (or lift the restriction). The server enforces it;
+    // the member_restricted broadcast confirms the change to everyone.
+    void setMemberRestricted(const QString &targetId, bool restricted);
     // Rooms v2 chat: the server broadcasts the message back to everyone in
     // the room (including us), so there is no local echo here.
     void sendChat(const QString &text);
@@ -116,6 +121,7 @@ signals:
     void chatReceived(const QString &fromId, const QString &fromName,
                       const QString &text, qint64 ts);
     void memberTyping(const QString &fromId, const QString &fromName);
+    void memberRestricted(const QString &targetId, bool restricted);
     void kicked(const QString &message);
     void roomClosed(const QString &message);
     void errorReceived(const QString &message);

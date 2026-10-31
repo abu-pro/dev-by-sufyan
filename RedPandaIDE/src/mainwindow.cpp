@@ -934,6 +934,46 @@ void MainWindow::updateCompileActions(const Editor *e)
     ui->actionStop_Execution->setEnabled(mCompilerManager->running() || mDebugger->executing());
 }
 
+void MainWindow::refreshIconTint()
+{
+    // Dev by Sufyan: the five anime editor color schemes also drive
+    // the app icons — the icon sets' ink color is re-rendered in the
+    // scheme's accent (see IconsManager::createSVGIcon). Any other
+    // scheme keeps the original icons. "Luffy Gear 5" is a light
+    // scheme; its icons use a cloud-white tint (Gear 5's white) so
+    // they stay clearly visible on the app's dark chrome
+    // and readable on the light background.
+    const QString scheme = pSettings->editor().colorScheme();
+    QColor tint; // invalid = no tint
+    if (scheme == QStringLiteral("Sukuna"))
+        tint = QColor{"#FF2A2A"};
+    else if (scheme == QStringLiteral("Gojo"))
+        tint = QColor{"#57C7FF"};
+    else if (scheme == QStringLiteral("Zenitsu"))
+        tint = QColor{"#FFD23F"};
+    else if (scheme == QStringLiteral("Naruto x Sasuke"))
+        tint = QColor{"#FF7A18"};
+    else if (scheme == QStringLiteral("Luffy Gear 5"))
+        tint = QColor{"#DCEEFF"};
+    if (mIconsManager->iconTint() == tint)
+        return;
+    mIconsManager->setIconTint(tint);
+    if (!mIconTintLive)
+        return; // startup: applySettings() loads the icons right after
+    // Live scheme switch: reload every icon category, mirroring the
+    // icon part of applySettings(). updateActionIcons() also
+    // re-assigns the fresh icons to all actions (menus + toolbars).
+    const int size = calIconSize(
+                pSettings->environment().interfaceFont(),
+                pSettings->environment().interfaceFontSize());
+    mIconsManager->updateParserIcons(
+                pSettings->environment().iconSet(), size);
+    updateEditorSettings(); // reloads the editor gutter icons too
+    updateActionIcons();
+    mIconsManager->updateFileSystemIcons(
+                pSettings->environment().iconSet(), size);
+}
+
 void MainWindow::updateEditorColorSchemes()
 {
     if (!mStatementColors)
@@ -943,6 +983,7 @@ void MainWindow::updateEditorColorSchemes()
     mEditorManager->applyColorSchemes(pSettings->editor().colorScheme());
     QString schemeName = pSettings->editor().colorScheme();
     mColorManager->updateStatementColors(mStatementColors,schemeName);
+    refreshIconTint();
     //color for code completion popup
     PColorSchemeItem item;
     QColor localHeaderColor=palette().color(QPalette::Text);
@@ -1165,6 +1206,9 @@ void MainWindow::applySettings()
 //    }
     stretchExplorerPanel(!ui->tabExplorer->isShrinked());
     stretchMessagesPanel(!ui->tabMessages->isShrinked());
+    // From now on a color-scheme change may reload the icons live
+    // (see refreshIconTint()).
+    mIconTintLive = true;
 }
 
 void MainWindow::applyUISettings()
