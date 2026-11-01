@@ -1,55 +1,65 @@
-# RedPanda C++
+# Dev by Sufyan
 
-Red Panda C++ (Old name: Red Panda Dev-C++ 7) is an fast ,lightweight, open source, and cross platform C/C++/GNU Assembly IDE.
+<img src="brand/devbysufyan-logo.png" alt="Dev by Sufyan logo" width="120">
 
-Simplified Chinese Website: [http://royqh.net/redpandacpp](http://royqh.net/redpandacpp)
+A Dev-C++-style code editor for **C, C++ and Python** with live **Rooms** built in — create a room, share the 4-digit code, and code together in real time.
 
-English Website: [https://sourceforge.net/projects/redpanda-cpp](https://sourceforge.net/projects/redpanda-cpp)
+**Made by Abu Sufyan.** Built on the Red Panda C++ IDE (see [Credits](#credits)).
 
-[Donate to this project](https://ko-fi.com/royqh1979)
+**Current version: v1.4.0**
 
-**New Features (Compared with Red Panda Dev-C++ 6):**
+## Download
 
-* Cross Platform (Windows/Linux/MacOS)
-* Problem Set (run and test program against predefined input / expected output data)
-* Competitive Companion support ( It's an chrome/firefox extension that can fetch problems from OJ websites)
-* Edit/compile/run/debug Assembly language programs ( GNU Assember / NASM ).
-* Find symbol occurrences
-* Memory View for debugging
-* TODO View
-* Support SDCC Compiler
+| File | What it is | Size |
+|---|---|---|
+| [DevBySufyan-Setup.exe](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.4.0/DevBySufyan-Setup.exe) | Windows installer (Start Menu shortcut + uninstaller) | 164.5 MB |
+| [DevBySufyan-Portable.zip](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.4.0/DevBySufyan-Portable.zip) | Portable folder — unzip and run, no install | 271.8 MB |
 
-**UI Improvements:**
+- **Website:** https://devbysufyan.vercel.app
+- **Android app:** the phone app is at v1.3.0 — get `DevBySufyan.apk` from the [v1.3.0 release](https://github.com/abu-pro/dev-by-sufyan/releases/tag/v1.3.0). It shares the same live rooms as the PC app.
+- The PC installer includes a MinGW GCC compiler, so **Compile & Run (F9)** works right after installing — nothing else to set up.
+- Windows may show a SmartScreen "unknown publisher" warning because the app is not code-signed yet: choose **More info → Run anyway**.
 
-* Full high-dpi support, including fonts and icons
-* Better dark theme support
-* Better editor color scheme support
-* Redesigned Find/Replace in Files UI
-* Redesigned bookmark UI
+## Rooms — code together live
 
-**Editing Improvements:**
+- The creator makes a room and gets a **4-digit code**; everyone else joins with that code and picks their own display name.
+- **Everyone can view everyone's code**, synced live as they type.
+- The **admin** (room creator) can view *and edit* everyone's code, set the member limit, restrict a member's editing, and kick members. The admin's own code is **view-only** for everyone else.
+- WhatsApp-style **chat**, member colours, live typing — and if you leave and rejoin with the same code, you get **your old seat, name and code back**.
+- **Live cursors:** see each member's caret move through their code, with their name flag on the line.
+- **Admin line pointing:** the admin can point a member to an exact line — their screen jumps to it, highlighted.
+- **Side by Side:** put a member's live code next to yours.
+- **Run All & Compare (admin):** run every member's program on one shared input and compare all the outputs in one table.
 
-* Enhanced auto indent
-* Enhanced code completion
-* Better code folding support
+## Features
 
-**Debugging Improvements:**
+- **Home screen** — a real Start tab like MS Word: New / Open, your recent files, and a rotating anime welcome with five themes (Sukuna, Zenitsu, Naruto × Sasuke, Luffy Gear 5, Gojo) whose colours carry through the whole app.
+- **Auto-save + crash recovery** — files save themselves every 30 seconds; drafts (even untitled) are kept, and after a crash the app offers to restore them.
+- **Compiler errors in easy words** — double-click an error and get a plain-English explanation of what it means and how to fix it. It is a **built-in offline dictionary — no AI, no internet needed**, and the app stays completely free.
+- **Update check** — the app checks here on GitHub for a newer version at startup; Help → Check for Updates works any time.
+- **Code photo** — save your code as a clean PNG picture (your theme and font, 1x/2x) for sharing.
+- **Flowchart** — turn simple C++ code (sequence, input/output, if/else, loops, return) into a flowchart picture and save it as PNG.
+- Everything from the Red Panda editor underneath: fast C/C++/Assembly editing, code completion, folding, debugging with watches, dark themes and high-DPI support.
 
-* Use gdb/mi interface
-* Enhanced watch
-* gdbserver mode
+## Free and offline
 
-**Code Intellisense Improvements:**
+Dev by Sufyan is **free**, and its smart features work **offline** — no accounts, no AI services, no subscriptions.
 
-* Better support identifiers for complex expressions
-* Support UTF-8 identifiers
-* Support C++ 14 using type alias
-* Support C-Style enum variable definitions
-* Support MACRO with arguments
-* Support C++ lambdas
+## Version history
 
-And many other improvements and bug fixes. See NEWS.md for full information.
+- **v1.4.0** — the nine-features release: auto-save + recovery, easy-words error explanations, update check, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo, flowchart
+- **v1.3.2** — Home became a real permanent Start tab with Recent Files; compact Rooms menus
+- **v1.3.1** — startup welcome fixed (full-screen anime art with matching accents), room seat restore on rejoin, transparent logo
+- **v1.3.0** — anime themes + welcome screen, tabbed Rooms panel, per-member edit restrictions, Android chat improvements
+- **v1.2.0** — bundled MinGW compiler, WhatsApp-style chat, connection keepalive + resume
+- **v1.0** — first release: Red Panda IDE with live Rooms, rebranded as Dev by Sufyan
 
-## Acknowledgement
+## Credits
 
-[Lua](https://www.lua.org/) 5.4.6 ([source mirror](https://github.com/lua/lua/tree/v5.4.6)) is used as add-on runtime.
+- **Made by Abu Sufyan** — Rooms design and integration, branding, themes, and the features above.
+- Based on **Red Panda C++** by Roy Qu and contributors — https://github.com/royqh1979/RedPanda-CPP
+- Rooms run on a small live server shared by the PC, web and Android versions.
+
+## License
+
+GNU GPL v3 — see [LICENSE](LICENSE) in this repo. The original authors and the GPL are preserved, as the license requires.
