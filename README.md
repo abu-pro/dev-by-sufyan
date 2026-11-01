@@ -36,7 +36,7 @@ A Dev-C++-style code editor for **C, C++ and Python** with live **Rooms** built 
 - **Home screen** — a real Start tab like MS Word: New / Open, your recent files, and a rotating anime welcome with five themes (Sukuna, Zenitsu, Naruto × Sasuke, Luffy Gear 5, Gojo) whose colours carry through the whole app.
 - **Auto-save + crash recovery** — files save themselves every 30 seconds; drafts (even untitled) are kept, and after a crash the app offers to restore them.
 - **Compiler errors in easy words** — double-click an error and get a plain-English explanation of what it means and how to fix it. It is a **built-in offline dictionary — no AI, no internet needed**, and the app stays completely free.
-- **Update check** — the app checks here on GitHub for a newer version at startup; Help → Check for Updates works any time.
+- **Online update** — when a new version is released on GitHub, the app tells you on the Home screen at startup and you can download the update right from there; Help → Check for Updates checks any time.
 - **Code photo** — save your code as a clean PNG picture (your theme and font, 1x/2x) for sharing.
 - **Flowchart** — turn simple C++ code (sequence, input/output, if/else, loops, return) into a flowchart picture and save it as PNG.
 - Everything from the Red Panda editor underneath: fast C/C++/Assembly editing, code completion, folding, debugging with watches, dark themes and high-DPI support.
@@ -47,7 +47,7 @@ Dev by Sufyan is **free**, and its smart features work **offline** — no accoun
 
 ## Version history
 
-- **v1.4.0** — the nine-features release: auto-save + recovery, easy-words error explanations, update check, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo, flowchart
+- **v1.4.0** — the nine-features release: auto-save + recovery, easy-words error explanations, online update, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo, flowchart
 - **v1.3.2** — Home became a real permanent Start tab with Recent Files; compact Rooms menus
 - **v1.3.1** — startup welcome fixed (full-screen anime art with matching accents), room seat restore on rejoin, transparent logo
 - **v1.3.0** — anime themes + welcome screen, tabbed Rooms panel, per-member edit restrictions, Android chat improvements
