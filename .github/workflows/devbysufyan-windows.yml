@@ -163,28 +163,25 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.4.0 release with the installer and the
+      # Publishes (or updates) the v1.5.0 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.4.0
-          name: Dev by Sufyan — Red Panda Edition (v1.4.0)
+          tag_name: v1.5.0
+          name: Dev by Sufyan — Red Panda Edition (v1.5.0)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.4.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.5.0)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.4.0 — the big features release (nine new features):
-            - **Auto-save + crash recovery** — open files save themselves every 30 seconds, and drafts of unsaved work (even untitled files) are kept; after a crash or power cut the app offers to restore them. Can be turned off in Settings
-            - **Compiler errors in easy words** — double-click a compiler error (or right-click it) and choose "Explain in simple words": what it means and how to fix it, in plain English, built in and offline
-            - **Update check** — the app checks GitHub for a newer version at startup and tells you on the Home screen; Help → Check for Updates checks any time
-            - **Live cursors in Rooms** — watch a member's caret move through their code: their line lights up in their colour with their name on it
-            - **Admin line pointing** — in a room, the admin right-clicks a line of a member's code and picks "Point at this line (Room)": the member's screen jumps to that line, highlighted
-            - **Side by Side** — Rooms → Side by Side puts the selected member's live code next to yours (Home or your file stays on your side)
-            - **Run All & Compare (admin)** — run every member's program on one shared input and compare the outputs in one table, all on the admin's PC
-            - **Code photo** — save the current file as a pretty PNG picture of your code (your theme and font, 1x/2x) for sharing
-            - **Flowchart** — turn simple C++ code into a flowchart picture (sequence, input/output, if/else, loops, return) and save it as PNG
+            New in v1.5.0:
+            - **Bigger easy-words error dictionary** — the built-in offline explanations more than doubled (107 entries): many more GCC/MinGW C and C++ errors and warnings, plus the common Python errors (SyntaxError, NameError, TypeError, IndexError, KeyError, ZeroDivisionError and friends) — each with what it means and how to fix it in simple words
+            - **Live ping indicator in Rooms** — the Rooms panel header now shows a coloured dot + milliseconds (green = good, yellow = slow, red = very slow or no reply), measured live while you are in a room
+            - **Bigger rooms** — the admin can now allow up to 60 members in a room (was 50)
+            - **Updates install from inside the app** — from this version on, when a newer version is found, "Download & Install" downloads the setup inside the app with a progress bar and opens it for you; no browser trip. Coming FROM v1.4.0, this release is announced the same way as before and its Download opens the setup in your browser — run it once and you are on v1.5.0
+
+            Everything from v1.4.0 is still here: auto-save + crash recovery, easy-words error explanations, the update check, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo and flowchart.
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed

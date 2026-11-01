@@ -77,6 +77,17 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     mConnLabel->setVisible(false);
     layout->addWidget(mConnLabel);
 
+    // v1.5.0: live ping indicator — a coloured dot + the round-trip
+    // time to the room server, updated by setPingRtt() while in a
+    // room (green = good, yellow = slow, red = very slow / no reply).
+    mPingLabel = new QLabel{this};
+    mPingLabel->setToolTip(
+        tr("Ping: how long a small message takes to reach the room "
+           "server and come back. Green is good, yellow is slow, "
+           "red means very slow or no reply."));
+    mPingLabel->setVisible(false);
+    layout->addWidget(mPingLabel);
+
     mMessagesButton = new QPushButton{tr("Messages"), this};
     mMessagesButton->setToolTip(tr("Open the room chat window"));
     mMessagesButton->setVisible(false);
@@ -177,7 +188,7 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     auto *maxLayout = new QHBoxLayout;
     maxLayout->addWidget(new QLabel{tr("Max members"), settingsTab});
     mMaxMembersSpin = new QSpinBox{settingsTab};
-    mMaxMembersSpin->setRange(2, 50);
+    mMaxMembersSpin->setRange(2, 60);
     mMaxMembersSpin->setValue(8);
     maxLayout->addWidget(mMaxMembersSpin);
     settingsLayout->addLayout(maxLayout);
@@ -246,6 +257,12 @@ void RoomsPanel::setInRoom(const QString &code, const QString &role,
     mJoinBox->setVisible(false);
     mTabs->setVisible(true);
     mMessagesButton->setVisible(true);
+    // v1.5.0: ping indicator starts in its grey "waiting" state; the
+    // first measured ping replaces it within a few seconds.
+    mPingLabel->setVisible(true);
+    mPingLabel->setText(tr("Ping: ")
+                        + QStringLiteral("<span style=\"color:#9e9e9e\">"
+                                         "●</span> —"));
     setUnreadCount(0);
     setReconnecting(false);
     setSettings(settings);
@@ -262,6 +279,7 @@ void RoomsPanel::setNotInRoom(const QString &message)
     mMembersList->clear();
     mProjectLabel->setVisible(false);
     mConnLabel->setVisible(false);
+    mPingLabel->setVisible(false);
     mMessagesButton->setVisible(false);
     setUnreadCount(0);
     mJoinBox->setVisible(true);
@@ -273,6 +291,31 @@ void RoomsPanel::setNotInRoom(const QString &message)
 void RoomsPanel::setReconnecting(bool reconnecting)
 {
     mConnLabel->setVisible(reconnecting && mInRoom);
+}
+
+void RoomsPanel::setPingRtt(int rttMs)
+{
+    if (!mInRoom)
+        return;
+    QString color;
+    QString value;
+    if (rttMs < 0) {
+        color = QStringLiteral("#e02323"); // red: no reply
+        value = tr("no reply");
+    } else if (rttMs < 150) {
+        color = QStringLiteral("#43a047"); // green: good
+        value = tr("%1 ms").arg(rttMs);
+    } else if (rttMs < 400) {
+        color = QStringLiteral("#f9a825"); // yellow: slow
+        value = tr("%1 ms").arg(rttMs);
+    } else {
+        color = QStringLiteral("#e02323"); // red: very slow
+        value = tr("%1 ms").arg(rttMs);
+    }
+    mPingLabel->setText(tr("Ping: ")
+                        + QStringLiteral("<span style=\"color:%1\">"
+                                         "●</span> ").arg(color)
+                        + value);
 }
 
 void RoomsPanel::setUnreadCount(int count)

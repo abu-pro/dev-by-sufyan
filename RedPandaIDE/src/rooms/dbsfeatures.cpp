@@ -37,6 +37,7 @@
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QProcess>
+#include <QProgressDialog>
 #include <QPushButton>
 #include <QRadioButton>
 #include <QRegularExpression>
@@ -62,7 +63,7 @@ namespace {
 
 // The one place the running version is named for the update checker;
 // the welcome page shows the same number (see setupWelcomePage).
-const char *const DBS_VERSION = "1.4.0";
+const char *const DBS_VERSION = "1.5.0";
 const char *const DBS_QUICKSAVE_KEY = "dbs/quickSaveEnabled";
 
 bool quickSaveEnabled()
@@ -94,11 +95,104 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "A name the compiler does not know",
       "You used a variable or function name that the compiler has never seen. Either it is a typing mistake, or the name was never created, or the header file / line that creates it is missing.",
       "Check the spelling first. If it is a variable, declare it before this line (for example: int x;). If it is a library function, add its #include at the top of the file." },
+    // ---- Python errors (v1.5.0) — the messages Python itself prints.
+    { "'return' outside function|'break' outside loop|'continue' not properly in loop|cannot assign to literal|cannot assign to function call",
+      "This statement is standing in the wrong place (Python)",
+      "Some statements only work in their own home: return only inside a def, break/continue only inside a loop. And a value can only be stored INTO a variable — you cannot assign to a plain number or to a function call.",
+      "Move the statement inside the right block, or store the result into a variable name first (total = ...). If you wanted to COMPARE two things, remember: = stores, == compares." },
+    { "SyntaxError",
+      "Python cannot understand this line (SyntaxError)",
+      "Python read your code and one line does not follow Python's grammar — a missing colon after if/for/def, a missing or extra bracket, or '=' used where '==' was meant are the usual causes. The ^ marker in the message points at the spot.",
+      "Look where the ^ points, and also at the line ABOVE it. Check: does the if/for/while/def line end with ':'? Are all brackets closed? Did you write = (store) where you meant == (compare)?" },
+    { "IndentationError|TabError|unexpected indent|expected an indented block|unindent does not match",
+      "The spaces at the line start are wrong (Python indentation)",
+      "In Python the spaces at the start of a line are part of the code: lines inside if/for/def must be pushed in by the same amount, and lines outside must line up. Here the spacing does not match the block around it — or tabs and spaces are mixed.",
+      "Make every line of the same block start with exactly the same spaces (4 is usual). Do not mix Tab and spaces. The line after a line ending with ':' must be indented one level more." },
+    { "NameError",
+      "Python does not know this name (NameError)",
+      "You used a variable or function name that was never created — a typing mistake, a name used before its first value, or a function from a module you forgot to import.",
+      "Check the spelling and capital letters (Python is case-sensitive: Total and total are different names). Make sure the name gets a value ABOVE this line. Watch out: the logical words are True, False and None — with a capital first letter." },
+    { "UnboundLocalError|referenced before assignment|cannot access local variable",
+      "The variable is used before it gets its value (Python)",
+      "Inside a function, this variable is read before any line gives it a value. Python also treats a name as belonging to the function as soon as it is assigned anywhere in the function — so reading an outside variable with the same name and assigning to it later also triggers this.",
+      "Give the variable a starting value at the top of the function. If you really mean the variable from outside the function and also change it inside, write 'global name' at the top of the function." },
+    { "object is not callable",
+      "You called something that is not a function (Python)",
+      "You wrote name(...) but 'name' is not a function — often a variable with the same name is hiding the function (for example a variable called list, sum or print), or ( ) was put after a plain value by mistake.",
+      "Rename your variable so it does not cover a built-in name like list, str, sum, max or print. Remember: square brackets [ ] take an item out of a list; round brackets ( ) call a function." },
+    { "unsupported operand|not supported between instances",
+      "These two values cannot be combined like that (Python)",
+      "The operation mixes types that do not fit — the classic case is adding a number to text ('5' + 3) or comparing text with a number. Python never converts silently here.",
+      "Make both sides the same kind first: int(x) or float(x) turns text into a number; str(x) turns a number into text. Text from input() is always text — convert it with int() before doing maths." },
+    { "can only concatenate",
+      "Text can only be joined with text (Python)",
+      "With +, Python joins text to text only. One side here is a number (or another type), and Python refuses to guess the conversion.",
+      "Turn the number into text first: 'Total: ' + str(total). Or use an f-string, which does it for you: f'Total: {total}'." },
+    { "object is not subscriptable",
+      "Square brackets used on something without items (Python)",
+      "You wrote value[index], but 'value' is a single number, None or similar — it has no items inside to pick from. A common cause: a function that returns nothing (None) was stored and then indexed.",
+      "Check what the variable really holds (print it). Indexing with [ ] works on lists, strings, tuples and dictionaries. If the value came from a function, make the function return what you expected." },
+    { "indices must be integers|slice indices must be integers",
+      "The index inside [ ] must be a whole number (Python)",
+      "For lists and strings, the position inside the square brackets must be an integer. Here it is text or a decimal number — very often a value that came from input() and was never converted.",
+      "Convert the index with int(...). If it came from input(), remember input() always gives text." },
+    { "takes \\d+ positional argument|takes no arguments|missing \\d+ required positional argument|got an unexpected keyword argument|got multiple values for argument",
+      "The function call has the wrong arguments (Python)",
+      "The call does not match the function's def line: too many values, too few, or a keyword the function does not have. When the message says it 'takes 2 but 3 were given', the hidden extra is often 'self' being counted — or a method called on the class instead of on an object.",
+      "Compare the call with the def line, argument by argument, in order. For methods, call them on an object (obj.method(...)) so 'self' is filled in automatically." },
+    { "TypeError",
+      "A value of the wrong type was used (Python TypeError)",
+      "Python was given a value of a kind it cannot use in this place — like len() of a number, sorting a mix of text and numbers, or trying to change something that cannot be changed (a tuple).",
+      "Print the value and its type with type(x) to see what you really have. Then convert it (int, float, str, list) or change the code to match the type." },
+    { "invalid literal for int|invalid literal for float|could not convert string to float",
+      "Text that is not a number was turned into a number (Python)",
+      "int(...) or float(...) received text that does not look like a number — letters, an empty string, or decimal text like '3.5' given to int().",
+      "Check what the text really contains (print it with print(repr(x)) to see hidden spaces). For decimal text use float(...) first, or clean the input before converting." },
+    { "ValueError",
+      "The value is the right kind, but not allowed (Python ValueError)",
+      "The type was fine, but the value itself is not acceptable here — for example unpacking a list with too few items into too many names, or a maths domain error like the square root of a negative number.",
+      "Read the message after 'ValueError:' — it names the exact problem. Print the value just before this line and check why it is outside what the function allows." },
+    { "IndexError|index out of range",
+      "That position does not exist in the list (Python IndexError)",
+      "The index is bigger than the last position (or too far negative). Remember: a list with 5 items has positions 0 to 4 — position 5 is already outside.",
+      "Check the length with len(my_list) and compare your index. Loops usually want range(len(my_list)). An empty list has no valid position at all." },
+    { "KeyError",
+      "That key is not in the dictionary (Python KeyError)",
+      "You asked the dictionary for a key it does not contain — a spelling difference, different capital letters, or the key was never added.",
+      "Print the dictionary (or its keys with my_dict.keys()) and compare the exact spelling. If the key may be missing on purpose, use my_dict.get(key, default) instead of my_dict[key]." },
+    { "AttributeError",
+      "That thing does not have this member (Python AttributeError)",
+      "You wrote object.something, but the object has no member with that name — a typo, or the object is not the type you think (for example None, because a function returned nothing).",
+      "Check the spelling, and print type(object) to be sure what it is. If it is None, the function that produced it needs a return statement." },
+    { "ZeroDivisionError",
+      "Division by zero (Python)",
+      "A /, // or % had zero on the right side, and Python stops the program instead of guessing an answer.",
+      "Check the dividing value before dividing (if b != 0: ...) and find out why it became zero — often an empty input or a counter that never started." },
+    { "ModuleNotFoundError|No module named|ImportError|cannot import name",
+      "A module could not be imported (Python)",
+      "Python cannot find the module in the import line — its name is misspelled, it is not installed, or your own file has the same name as a library module and hides it (a file called random.py or math.py does exactly this). 'cannot import name' means the module WAS found but that name is not inside it.",
+      "Check the spelling. Rename your own file if it matches a library name (and delete the __pycache__ folder next to it). Install outside libraries with: pip install name. For 'cannot import name', check the exact name inside the module." },
+    { "FileNotFoundError",
+      "Python cannot find that file",
+      "The program tried to open a file that is not at the given place. Python looks relative to the folder the program RUNS from — which is not always the folder the .py file sits in.",
+      "Check the file name spelling and the folder. Give the full path, or run the program from the folder where the file lives. In Windows paths use forward slashes or double backslashes: 'C:/data/file.txt'." },
+    { "PermissionError",
+      "The file is busy or protected (Python PermissionError)",
+      "Python was not allowed to open or write the file — very often because the file is still open in another program (like Excel), or the folder is read-only.",
+      "Close the file in the other program, then run again. If you are writing a file, choose a folder your programs may write to (your Documents folder, for example)." },
+    { "RecursionError|maximum recursion depth",
+      "The function keeps calling itself forever (Python)",
+      "A function calls itself again and again without ever reaching its stopping case, until Python stops it to protect the program.",
+      "Check the base case: there must be a condition that RETURNS without calling again, and every call must move one step closer to it." },
+    { "AssertionError",
+      "An assert check failed (Python)",
+      "An assert line tested something and it was False, so the program stopped on purpose. This is a checking tool, not a crash: it tells you a value was not what the code expected.",
+      "Print the values used in the assert just above the failing line and find why the expectation is wrong — either the value or the expectation needs fixing." },
     { "expected ';'",
       "A semicolon (;) is missing",
       "Almost every statement in C/C++ must end with a semicolon. The compiler reached this point and did not find one.",
       "Look at the END of the line just ABOVE the reported line — that is where the ; is usually missing. Add it there." },
-    { "expected '}'|expected ']'|expected ')'",
+    { "expected '}'|expected ']'|expected '\\)'",
       "A closing bracket is missing",
       "Something was opened with { or ( or [ but never closed, so the compiler ran out of code while still waiting for the closing bracket.",
       "Count the opening and closing brackets in the function above this line. Every { needs a }. The mistake is usually in the lines above, not on the reported line." },
@@ -130,6 +224,14 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "The two sides have types that do not fit",
       "An assignment or argument mixes types that cannot be mixed directly (for example a pointer and a number).",
       "Make both sides the same kind of value, or convert one of them on purpose." },
+    { "WinMain",
+      "main() is missing — the linker is looking for the program's start",
+      "Every program needs exactly one starting point: int main(). The linker did not find it, so it complains about WinMain (the Windows GUI start point). Causes: main is missing entirely, it is misspelled (for example Main), or it sits in a file that is not part of the project.",
+      "Make sure one of your files has exactly: int main() { ... return 0; } — with a small 'm'. If two files both define main, remove one of them." },
+    { "vtable for|typeinfo for",
+      "A class promises a function that was never written (linker error)",
+      "The class declares a virtual function but its body is missing, or the .cpp file holding the class's functions is not part of the project — so the linker cannot build the class's function table (the vtable).",
+      "Write the body of every virtual function you declared (even an empty one: void f() { }), or remove the declaration. If the bodies live in another .cpp file, add that file to the project." },
     { "undefined reference|undefined symbol",
       "A function is promised but never written (linker error)",
       "Your code CALLS a function (or uses a variable) that is declared, but its actual code was never compiled into the program. The compiler was fine with each file — the LINKER cannot find the function's body.",
@@ -146,14 +248,22 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "A library file is missing",
       "The program asks to link a library (-l something) that is not installed or not in the library folders.",
       "Check the library name in the project/linker settings, or install the library. For normal class programs, remove library names you do not really need." },
-    { "no such file or directory",
-      "A file was not found",
-      "The compiler was told to open a file that does not exist at that place — a misspelled #include, a missing project file, or a wrong folder.",
-      "Check the exact spelling of the file name (also capital letters). Make sure the file really exists in the project folder." },
     { "fatal error: .* no such file",
       "A header file is missing",
       "An #include names a header that cannot be found — usually a typing mistake, or a library header that is not installed.",
       "Check the spelling inside the < > or quotes. Standard ones look like <iostream>, <cmath>, <string>. Your own headers must sit in the same folder (use \"name.h\")." },
+    { "no such file or directory",
+      "A file was not found",
+      "The compiler was told to open a file that does not exist at that place — a misspelled #include, a missing project file, or a wrong folder.",
+      "Check the exact spelling of the file name (also capital letters). Make sure the file really exists in the project folder." },
+    { "deprecated",
+      "An old, retired function is being used (warning)",
+      "This function or style is from an older version of C/C++ and is kept only so old programs still compile. It still works today, but new code should use the modern replacement.",
+      "You may ignore it while learning. When you have time, switch to the replacement the message suggests (for example gets -> fgets)." },
+    { "ignoring return value",
+      "A result was thrown away (warning)",
+      "The function gives back a value that tells you something (often 'did it work?'), and the code ignores it. For scanf this usually does no harm in class programs, but for file functions it can hide a real failure.",
+      "Either use the result (store it in a variable and check it), or ignore this warning while learning — the program still runs." },
     { "\\bcin\\b|\\bcout\\b|\\bendl\\b",
       "cout / cin needs <iostream>",
       "cout, cin and endl live in the <iostream> header and in the std namespace. Without them the compiler does not know these names.",
@@ -178,6 +288,10 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "vector needs <vector>",
       "std::vector is declared in the <vector> header.",
       "Add #include <vector> at the top, and write std::vector<...> or add using namespace std;" },
+    { "converting a string constant|string constant to",
+      "Text given to a char* — that text is read-only",
+      "Text written in double quotes is constant: it must not be changed through a pointer. Old C allowed a plain char* for it; C++ wants the pointer to promise not to modify the text.",
+      "Write const char* p = \"hello\"; — or use std::string if the text really needs to change." },
     { "\\bstring\\b",
       "string needs <string>",
       "std::string is declared in the <string> header.",
@@ -282,6 +396,10 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "A void value is being used as data",
       "Something of type void (which means 'nothing') is used where real data is needed.",
       "Check the function call here: a void function gives nothing back, so it cannot stand in an expression." },
+    { "avoid ambiguous 'else'|dangling",
+      "Which if does this else belong to?",
+      "With nested ifs and no braces, an else belongs to the NEAREST if — which may not be the if you meant. The compiler warns that this code is easy to misread.",
+      "Put { } around the if and else blocks so the pairing you mean is the pairing that happens." },
     { "ambiguous|call of overloaded .* is ambiguous",
       "Two function versions fit equally well",
       "More than one version of the function could accept your arguments, and the compiler refuses to guess.",
@@ -322,6 +440,87 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "Division by zero",
       "A division (or %) has zero on the right side — with a constant zero the compiler warns; with a variable it can crash at run time.",
       "Check the dividing value before dividing (if (b != 0)) and fix where it becomes zero." },
+    // ---- More GCC / MinGW messages (v1.5.0).
+    { "cannot open output file",
+      "The old program is still running (the linker cannot write the .exe)",
+      "The new .exe cannot be written because the old one is still open or running — Windows locks a running program file. This is the famous 'Permission denied' linker error on Windows.",
+      "Close the running program's window first, then compile again. If it still fails, open Task Manager and end the leftover program process." },
+    { "expected constructor, destructor, or type conversion",
+      "Probably a missing ; after a class or struct",
+      "The compiler met something at file scope it cannot read as a declaration. The classic cause: the class or struct just above ends with } but the ; after it is missing — class definitions must end with };",
+      "Check the end of the class/struct above and make it }; — if there is no class above, look for a stray line or a forgotten ; just above the reported line." },
+    { "cannot call member function",
+      "A member function was called without an object",
+      "Functions inside a class belong to an object. Calling ClassName::function() only works for functions marked static; normal member functions need an object in front of them.",
+      "Create an object and call through it: MyClass obj; obj.function(); — or mark the function 'static' if it truly needs no object." },
+    { "array subscript is not an integer",
+      "The array index is not a whole number",
+      "Inside array[ ] the position must be a whole number. Here it is a decimal number, a character or something else.",
+      "Use an int for the index. If the index is a calculation, store it in an int variable first and check its value." },
+    { "is dangerous",
+      "gets() is dangerous — do not use it",
+      "gets() reads text without any size limit, so long input can overflow the array and crash the program (or worse). It was removed from modern C for this reason; old books still show it.",
+      "Use fgets instead: fgets(name, sizeof(name), stdin); — it can never write past the end of your array." },
+    { "\\bmemset\\b",
+      "memset needs <cstring>",
+      "memset is declared in the <cstring> header (C: <string.h>).",
+      "Add #include <cstring> at the top of the file." },
+    { "set but not used",
+      "A variable is given values but never read (warning)",
+      "The code stores into this variable, but nothing ever reads it afterwards. Often a sign that a step is missing — for example a total that is calculated but never printed.",
+      "Read the variable where you meant to use it (print it, return it, compare it), or remove it if it is truly not needed." },
+    { "defined but not used",
+      "Written but never used (warning)",
+      "This function or variable is fully written, but the program never calls or uses it anywhere.",
+      "Call it where you meant to, or delete it. Safe to ignore while learning." },
+    { "without a previous",
+      "An else with no if above it",
+      "Every else must belong to an if that comes right before it. Here the compiler cannot find that if — usually a } above closed the if-block earlier than you think, or a ; right after if (...) cut the if off.",
+      "Check the lines above: make sure the if and its { } block really end right before this else, and remove any ; sitting directly after if (...)." },
+    { "too few arguments|too many arguments",
+      "Wrong number of arguments in the call",
+      "The function was called with more or fewer values than its declaration promises. In C the compiler is strict about this once the declaration is known.",
+      "Compare the call with the function's declaration and add or remove values so both lists match, in the same order and with matching types." },
+    { "conflicting types",
+      "Two declarations of the function disagree",
+      "The function is declared in two places with different types — often a call before any declaration made the compiler guess one type, and the real definition says another. A missing #include for a library function does this too.",
+      "Write ONE declaration of the function above main (matching the definition exactly), or add the missing #include. Compare return type and parameter types character by character." },
+    { "makes pointer from integer|makes integer from pointer",
+      "A memory address and a number were mixed up",
+      "One side of this line is a pointer (a memory address, like an array name or a variable written with *), and the other side is a plain number — the compiler converted between them, which is nearly always a bug.",
+      "Decide what you mean: to work with the VALUE, write *pointer or array[i]; to store an address, the receiving variable must be a pointer type (with *). Also check function arguments — passing x where &x was needed is the classic case." },
+    { "incompatible implicit declaration",
+      "A library function is used without its #include",
+      "The compiler has not seen this function's real declaration, so it guessed one — and the guess does not match the real function. The wrong guess can give wrong results, not just a warning.",
+      "Add the function's #include at the top (for example <cstring> for strlen, <cmath> for sqrt, <cstdio> for printf)." },
+    { "is not a member of",
+      "That name does not exist inside this class/namespace",
+      "You wrote something like std::name, but there is no member with that exact name there — a typo, the wrong header, or the name lives somewhere else (for example std::sort needs <algorithm>).",
+      "Check the spelling first. Then check that the header declaring it is #included. If it is your own class, open its definition and compare the member names." },
+    { "unused parameter",
+      "A function parameter is never used (just a warning)",
+      "The function receives this value but its body never uses it — common with argc/argv in main, or a parameter you planned to use and forgot.",
+      "Use the parameter, or ignore the warning — the program works. (Removing the name but keeping the type, like 'int main(int, char**)', also silences it.)" },
+    { "skipping incompatible",
+      "That library file does not fit this compiler",
+      "The linker found the library but skipped it: it was built for a different kind of system (for example 32-bit instead of 64-bit, or a different compiler). Right after this it usually also says 'cannot find -l...'.",
+      "Use the library build that matches your compiler (same 32/64-bit). For normal class programs, remove -l entries you do not really need from the linker settings." },
+    { "extra ';'",
+      "An extra semicolon (harmless warning)",
+      "There is a ; that is not needed — often left behind after the } of a function or class.",
+      "Delete the extra ; — or ignore the warning, it changes nothing." },
+    { "may be undefined",
+      "This line changes and reads the same variable at once (warning)",
+      "Lines like i = i++ or f(i, i++) change a variable and use its value in the same breath; the order is not promised, so different compilers can give different answers.",
+      "Split it into two lines: first change the variable, then use it. 'i++; x = i;' is always clear." },
+    { "comparison is always",
+      "This comparison can only ever go one way (warning)",
+      "The values that can reach this comparison make the answer always true or always false — for example comparing an unsigned value with < 0, or a char with a number far outside its range. The code probably does not do what you planned.",
+      "Check the types and the possible ranges of both sides; the condition or one of the values is not what you think it is." },
+    { "ISO C\\+\\+ forbids",
+      "Old-style code the compiler is strict about",
+      "This way of writing was allowed in old C/C++, and the modern standard forbids it. The message itself names the exact thing (converting text to char*, a variable-size array, an old-style declaration...). GCC often still compiles it with just this warning, but stricter compilers may refuse.",
+      "Follow what the message names: for text given to char*, declare it const char*; for variable-size arrays, fix the size as a const or use std::vector; in general, write the modern form and the warning disappears." },
 };
 
 const ErrorExplanation *explainError(const QString &description)
@@ -735,10 +934,12 @@ void MainWindow::dbsCheckForUpdates(bool manual)
             return;
         }
         QString downloadUrl = root.value("html_url").toString();
+        bool setupAsset = false;
         for (const QJsonValue &value : root.value("assets").toArray()) {
             QJsonObject asset = value.toObject();
             if (asset.value("name").toString() == "DevBySufyan-Setup.exe") {
                 downloadUrl = asset.value("browser_download_url").toString();
+                setupAsset = true;
                 break;
             }
         }
@@ -754,14 +955,141 @@ void MainWindow::dbsCheckForUpdates(bool manual)
         box.setWindowTitle(tr("Update available"));
         box.setText(tr("Dev by Sufyan v%1 is available (you have v%2).")
                     .arg(latest, DBS_VERSION));
-        box.setInformativeText(tr("Download the new setup and run it — "
-                                  "your settings and files stay as they are."));
-        QPushButton *downloadBtn = box.addButton(tr("Download"),
-                                                 QMessageBox::AcceptRole);
+        box.setInformativeText(setupAsset
+            ? tr("Download and install it from inside the app — no "
+                 "browser needed. Your settings and files stay as "
+                 "they are.")
+            : tr("Download the new setup and run it — "
+                 "your settings and files stay as they are."));
+        QPushButton *downloadBtn = box.addButton(
+                    setupAsset ? tr("Download && Install") : tr("Download"),
+                    QMessageBox::AcceptRole);
         box.addButton(tr("Later"), QMessageBox::RejectRole);
         box.exec();
-        if (box.clickedButton() == downloadBtn)
-            QDesktopServices::openUrl(QUrl(downloadUrl));
+        if (box.clickedButton() == downloadBtn) {
+            // v1.5.0: the setup downloads and launches from inside
+            // the app; the browser route is the fallback (and the
+            // route for a release with no setup asset attached).
+            if (setupAsset)
+                dbsDownloadAndInstallUpdate(downloadUrl, latest);
+            else
+                QDesktopServices::openUrl(QUrl(downloadUrl));
+        }
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Part 3b — in-app update download (v1.5.0). The setup is fetched with
+// a progress dialog and launched from inside the app, so an update no
+// longer sends the user to the browser; any failure falls back to the
+// v1.4.0 browser route.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct UpdateDownloadState {
+    bool cancelled = false;
+};
+
+} // namespace
+
+void MainWindow::dbsDownloadAndInstallUpdate(const QString &url,
+                                             const QString &version)
+{
+    const QString filePath =
+            QStandardPaths::writableLocation(QStandardPaths::TempLocation)
+            + QStringLiteral("/DevBySufyan-Setup-v%1.exe").arg(version);
+    auto *file = new QFile(filePath);
+    if (!file->open(QIODevice::WriteOnly)) {
+        delete file;
+        QMessageBox::warning(
+                    this, tr("Update download"),
+                    tr("The setup could not be saved on this computer. "
+                       "The download page will open in your browser "
+                       "instead."));
+        QDesktopServices::openUrl(QUrl(url));
+        return;
+    }
+    auto state = std::make_shared<UpdateDownloadState>();
+    auto *net = new QNetworkAccessManager(this);
+    QNetworkRequest request{QUrl(url)};
+    request.setHeader(QNetworkRequest::UserAgentHeader,
+                      QString("DevBySufyan/%1").arg(DBS_VERSION));
+    // The setup asset URL redirects to the file host; follow it.
+    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
+                         QNetworkRequest::NoLessSafeRedirectPolicy);
+    QNetworkReply *reply = net->get(request);
+    auto *dialog = new QProgressDialog(
+                tr("Downloading Dev by Sufyan v%1...").arg(version),
+                tr("Cancel"), 0, 100, this);
+    dialog->setWindowTitle(tr("Update download"));
+    dialog->setWindowModality(Qt::WindowModal);
+    dialog->setAutoClose(false);
+    dialog->setAutoReset(false);
+    dialog->setMinimumDuration(0);
+    dialog->setValue(0);
+    dialog->show();
+
+    connect(dialog, &QProgressDialog::canceled, this, [state, reply]() {
+        state->cancelled = true;
+        reply->abort();
+    });
+    connect(reply, &QNetworkReply::readyRead, this, [reply, file]() {
+        file->write(reply->readAll());
+    });
+    connect(reply, &QNetworkReply::downloadProgress, this,
+            [dialog](qint64 received, qint64 total) {
+        if (total > 0) {
+            if (dialog->maximum() == 0)
+                dialog->setMaximum(100);
+            dialog->setValue(int(received * 100 / total));
+        } else {
+            dialog->setMaximum(0); // busy bar while the size is unknown
+        }
+        dialog->setLabelText(tr("Downloading... %1 MB received")
+                             .arg(received / 1048576.0, 0, 'f', 1));
+    });
+    connect(reply, &QNetworkReply::finished, this,
+            [this, reply, net, file, dialog, state, url, version,
+             filePath]() {
+        file->write(reply->readAll());
+        file->close();
+        const bool failed = reply->error() != QNetworkReply::NoError;
+        const qint64 size = QFileInfo(filePath).size();
+        dialog->close();
+        dialog->deleteLater();
+        reply->deleteLater();
+        net->deleteLater();
+        delete file;
+        if (state->cancelled) {
+            QFile::remove(filePath);
+            return; // the user changed their mind — stay silent
+        }
+        if (failed || size <= 0) {
+            QFile::remove(filePath);
+            QMessageBox::warning(
+                        this, tr("Update download"),
+                        tr("The download inside the app did not finish. "
+                           "The download page will open in your browser "
+                           "instead."));
+            QDesktopServices::openUrl(QUrl(url));
+            return;
+        }
+        QMessageBox::information(
+                        this, tr("Download complete"),
+                        tr("Dev by Sufyan v%1 is ready. The app will "
+                           "close now and the setup will open — your "
+                           "settings and files stay as they are.")
+                        .arg(version));
+        if (QProcess::startDetached(filePath, QStringList())) {
+            QApplication::quit();
+        } else {
+            QMessageBox::warning(
+                        this, tr("Update download"),
+                        tr("The setup was downloaded but could not be "
+                           "started. You can run it yourself:\n%1")
+                        .arg(filePath));
+        }
     });
 }
 

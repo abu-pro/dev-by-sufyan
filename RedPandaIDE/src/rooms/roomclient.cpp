@@ -91,7 +91,8 @@ RoomClient::RoomClient(QObject *parent) :
     QObject{parent},
     mSocket{new QWebSocket{QString(), QWebSocketProtocol::VersionLatest, this}},
     mReconnectTimer{new QTimer{this}},
-    mPingTimer{new QTimer{this}}
+    mPingTimer{new QTimer{this}},
+    mRttTimer{new QTimer{this}}
 {
     // Honor the OS / environment proxy settings (needed on networks
     // where outgoing connections must go through a proxy).
@@ -127,6 +128,10 @@ RoomClient::RoomClient(QObject *parent) :
     // mappings warm on flaky networks.
     mPingTimer->setInterval(25000);
     connect(mPingTimer, &QTimer::timeout, this, &RoomClient::onPingTimer);
+    // v1.5.0: while in a room, probe every 5 s so the panel's ping
+    // indicator stays live (the keepalive above is only every 25 s).
+    mRttTimer->setInterval(5000);
+    connect(mRttTimer, &QTimer::timeout, this, &RoomClient::onRttTimer);
 }
 
 RoomClient::~RoomClient() = default;
@@ -355,6 +360,8 @@ void RoomClient::resetState()
     mReconnectAttempt = 0;
     mReconnectTimer->stop();
     mPingTimer->stop();
+    mRttTimer->stop();
+    mPingOutstanding = false;
 }
 
 void RoomClient::sendJson(const QJsonObject &object)
@@ -413,13 +420,37 @@ void RoomClient::onReconnectTimer()
         onConnected();
 }
 
+void RoomClient::sendPing()
+{
+    if (!mInRoom || !isConnected())
+        return;
+    QJsonObject object;
+    object["type"] = "ping";
+    sendJson(object);
+    // Only one measurement in flight: pongs are not numbered, so a
+    // newer ping must not move the stamp while a pong is still owed.
+    if (!mPingOutstanding) {
+        mPingOutstanding = true;
+        mPingStamp.start();
+    }
+}
+
 void RoomClient::onPingTimer()
 {
-    if (mInRoom && isConnected()) {
-        QJsonObject object;
-        object["type"] = "ping";
-        sendJson(object);
+    sendPing();
+}
+
+void RoomClient::onRttTimer()
+{
+    if (!mInRoom || !isConnected())
+        return;
+    if (mPingOutstanding && mPingStamp.elapsed() > 10000) {
+        // The last ping was never answered: report "no reply" for
+        // the indicator, then start a fresh measurement below.
+        mPingOutstanding = false;
+        emit pingRttChanged(-1);
     }
+    sendPing();
 }
 
 void RoomClient::onDisconnected()
@@ -427,6 +458,7 @@ void RoomClient::onDisconnected()
     const bool wasActive = mInRoom || mConnecting;
     mConnecting = false;
     mPingTimer->stop();
+    mRttTimer->stop();
     if (mLeaving) {
         mLeaving = false;
         resetState();
@@ -442,6 +474,7 @@ void RoomClient::onDisconnected()
             mReconnectAttempt = 0;
             mDropElapsed.start();
             emit reconnecting();
+            emit pingRttChanged(-1); // v1.5.0: indicator shows no reply
         }
         if (mDropElapsed.elapsed() > RECONNECT_GIVE_UP_MS) {
             resetState();
@@ -478,6 +511,7 @@ void RoomClient::onTextMessageReceived(const QString &message)
         mReconnectAttempt = 0;
         mReconnectTimer->stop();
         mPingTimer->start();
+        mRttTimer->start();
         saveSeat();
         // A join (not a reconnect-resume) that the server marked as a
         // seat restore: the panel greets the user with "Welcome back".
@@ -553,6 +587,12 @@ void RoomClient::onTextMessageReceived(const QString &message)
         emit roomClosed(object.value("message").toString());
     } else if (type == "error") {
         emit errorReceived(object.value("message").toString());
+    } else if (type == "pong") {
+        // v1.5.0: answer to our app-level ping — turn it into the
+        // round-trip time for the Rooms panel's ping indicator.
+        if (mPingOutstanding) {
+            mPingOutstanding = false;
+            emit pingRttChanged(int(mPingStamp.elapsed()));
+        }
     }
-    // "pong" (answer to our app-level ping) needs no handling.
 }

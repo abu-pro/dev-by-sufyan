@@ -152,6 +152,10 @@ signals:
     // The connection ended for good while connecting or in a room,
     // without a protocol-level goodbye and with no resume possible.
     void disconnected();
+    // v1.5.0: round-trip time of the latest app-level ping, for the
+    // Rooms panel's live ping indicator. rttMs >= 0 is a measured
+    // value; -1 means a ping went unanswered (no live reply).
+    void pingRttChanged(int rttMs);
 
 private slots:
     void onConnected();
@@ -159,10 +163,14 @@ private slots:
     void onDisconnected();
     void onReconnectTimer();
     void onPingTimer();
+    void onRttTimer();
 
 private:
     void openSocket();
     void sendJson(const QJsonObject &object);
+    // v1.5.0: send one app-level ping and (if none is outstanding)
+    // stamp the time, so the pong can be turned into a round-trip.
+    void sendPing();
     void resetState();
     void scheduleReconnect();
     // v1.3.1 seat persistence (QSettings rooms/lastCode + lastToken)
@@ -172,6 +180,11 @@ private:
     QWebSocket *mSocket;
     QTimer *mReconnectTimer;
     QTimer *mPingTimer;
+    // v1.5.0: ping round-trip measurement (the 25 s keepalive timer
+    // above still runs; this 5 s probe only runs while in a room).
+    QTimer *mRttTimer;
+    QElapsedTimer mPingStamp;
+    bool mPingOutstanding = false;
     bool mInRoom = false;
     bool mConnecting = false;
     bool mLeaving = false;

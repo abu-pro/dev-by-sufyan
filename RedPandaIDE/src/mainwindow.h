@@ -378,6 +378,9 @@ private:
     void dbsShowFlowchart();
     void dbsRunAllCompare();
     void dbsCheckForUpdates(bool manual);
+    // v1.5.0: download the new setup inside the app and launch it.
+    void dbsDownloadAndInstallUpdate(const QString &url,
+                                     const QString &version);
     // v1.3.0: Messages popup, member restriction, welcome page
     void showRoomChatWindow();
     void onRoomRestrictRequested(const QString &memberId, bool restricted);

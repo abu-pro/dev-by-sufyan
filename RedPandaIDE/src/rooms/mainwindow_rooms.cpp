@@ -258,6 +258,9 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomMemberCursor);
     connect(mRoomClient, &RoomClient::linePointed,
             this, &MainWindow::onRoomLinePointed);
+    // v1.5.0: live ping indicator in the Rooms panel header.
+    connect(mRoomClient, &RoomClient::pingRttChanged,
+            mRoomsPanel, &RoomsPanel::setPingRtt);
     mRoomCursorThrottle = new QTimer(this);
     mRoomCursorThrottle->setSingleShot(true);
     mRoomCursorThrottle->setInterval(200);
@@ -444,7 +447,7 @@ void MainWindow::setupWelcomePage()
     // permanent "Home" tab of the editor area (see ensureHomeTab()).
     // The approved full-bleed anime design is unchanged.
     mWelcomePage = new WelcomePage(this);
-    mWelcomePage->setVersionText(tr("Version 1.4.0"));
+    mWelcomePage->setVersionText(tr("Version 1.5.0"));
     auto shortcutOf = [](QAction *action) {
         return action ? action->shortcut().toString() : QString();
     };

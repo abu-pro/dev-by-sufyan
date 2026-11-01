@@ -64,6 +64,10 @@ public:
     void selectTab(int index); // 0 Room, 1 Members, 2 Settings
     void focusJoinField();     // focus the code field (Join from menu)
 
+    // v1.5.0: live ping indicator (header line, visible in a room).
+    // rttMs >= 0: measured round trip; -1: a ping went unanswered.
+    void setPingRtt(int rttMs);
+
     // Stable per-member color (same palette idea as the mobile app).
     static QColor memberColor(const QString &memberId);
 
@@ -97,6 +101,7 @@ private:
     // Header
     QLabel *mStatusLabel;
     QLabel *mConnLabel;
+    QLabel *mPingLabel;
     QPushButton *mMessagesButton;
     // Join box (not in a room)
     QWidget *mJoinBox;
