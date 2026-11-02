@@ -28,6 +28,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCursor>
 #include <QDir>
 #include <QDockWidget>
 #include <QFile>
@@ -447,7 +448,7 @@ void MainWindow::setupWelcomePage()
     // permanent "Home" tab of the editor area (see ensureHomeTab()).
     // The approved full-bleed anime design is unchanged.
     mWelcomePage = new WelcomePage(this);
-    mWelcomePage->setVersionText(tr("Version 1.5.0"));
+    mWelcomePage->setVersionText(tr("Version 1.5.1"));
     auto shortcutOf = [](QAction *action) {
         return action ? action->shortcut().toString() : QString();
     };
@@ -471,6 +472,8 @@ void MainWindow::setupWelcomePage()
     });
     connect(mWelcomePage, &WelcomePage::newDocumentRequested,
             this, &MainWindow::onWelcomeNewDocument);
+    connect(mWelcomePage, &WelcomePage::templatesRequested,
+            this, &MainWindow::onWelcomeTemplates);
     connect(mWelcomePage, &WelcomePage::openDocumentRequested, this, [this]() {
         ui->actionOpen->trigger();
     });
@@ -547,6 +550,355 @@ void MainWindow::onWelcomeNewDocument()
                     tr("The file was saved, but could not be opened: %1")
                     .arg(path), 6000);
 }
+
+// ---------------------------------------------------------------------------
+// v1.5.1 — program templates for the Home page's "Program Templates"
+// tile: five beginner classics, each in C++, C and Python. Short,
+// commented, ready to run and edit. Picking one follows the same
+// save-first flow as New Document, with the template as the content.
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct DbsProgramTemplate {
+    const char *name; // shown in the picker menu
+    const char *slug; // default file name (without extension)
+    const char *cpp;
+    const char *c;
+    const char *python;
+};
+
+const DbsProgramTemplate DBS_TEMPLATES[] = {
+    { "Multiplication Table", "multiplication-table",
+      "#include <iostream>\n"
+      "using namespace std;\n"
+      "\n"
+      "int main() {\n"
+      "    int n;\n"
+      "    cout << \"Enter a number: \";\n"
+      "    cin >> n;\n"
+      "    for (int i = 1; i <= 10; i++) {\n"
+      "        cout << n << \" x \" << i << \" = \" << n * i << endl;\n"
+      "    }\n"
+      "    return 0;\n"
+      "}\n",
+      "#include <stdio.h>\n"
+      "\n"
+      "int main() {\n"
+      "    int n, i;\n"
+      "    printf(\"Enter a number: \");\n"
+      "    scanf(\"%d\", &n);\n"
+      "    for (i = 1; i <= 10; i++) {\n"
+      "        printf(\"%d x %d = %d\\n\", n, i, n * i);\n"
+      "    }\n"
+      "    return 0;\n"
+      "}\n",
+      "n = int(input(\"Enter a number: \"))\n"
+      "for i in range(1, 11):\n"
+      "    print(n, \"x\", i, \"=\", n * i)\n" },
+    { "Factorial", "factorial",
+      "#include <iostream>\n"
+      "using namespace std;\n"
+      "\n"
+      "int main() {\n"
+      "    int n;\n"
+      "    long long fact = 1;\n"
+      "    cout << \"Enter a number: \";\n"
+      "    cin >> n;\n"
+      "    for (int i = 1; i <= n; i++) {\n"
+      "        fact = fact * i;\n"
+      "    }\n"
+      "    cout << \"Factorial of \" << n << \" = \" << fact << endl;\n"
+      "    return 0;\n"
+      "}\n",
+      "#include <stdio.h>\n"
+      "\n"
+      "int main() {\n"
+      "    int n, i;\n"
+      "    long long fact = 1;\n"
+      "    printf(\"Enter a number: \");\n"
+      "    scanf(\"%d\", &n);\n"
+      "    for (i = 1; i <= n; i++) {\n"
+      "        fact = fact * i;\n"
+      "    }\n"
+      "    printf(\"Factorial of %d = %lld\\n\", n, fact);\n"
+      "    return 0;\n"
+      "}\n",
+      "n = int(input(\"Enter a number: \"))\n"
+      "fact = 1\n"
+      "for i in range(1, n + 1):\n"
+      "    fact = fact * i\n"
+      "print(\"Factorial of\", n, \"=\", fact)\n" },
+    { "Prime Check", "prime-check",
+      "#include <iostream>\n"
+      "using namespace std;\n"
+      "\n"
+      "int main() {\n"
+      "    int n, i;\n"
+      "    bool isPrime = true;\n"
+      "    cout << \"Enter a number: \";\n"
+      "    cin >> n;\n"
+      "    if (n < 2) {\n"
+      "        isPrime = false;\n"
+      "    }\n"
+      "    for (i = 2; i < n; i++) {\n"
+      "        if (n % i == 0) {\n"
+      "            isPrime = false;\n"
+      "            break;\n"
+      "        }\n"
+      "    }\n"
+      "    if (isPrime) {\n"
+      "        cout << n << \" is a prime number.\" << endl;\n"
+      "    } else {\n"
+      "        cout << n << \" is not a prime number.\" << endl;\n"
+      "    }\n"
+      "    return 0;\n"
+      "}\n",
+      "#include <stdio.h>\n"
+      "\n"
+      "int main() {\n"
+      "    int n, i;\n"
+      "    int isPrime = 1;\n"
+      "    printf(\"Enter a number: \");\n"
+      "    scanf(\"%d\", &n);\n"
+      "    if (n < 2) {\n"
+      "        isPrime = 0;\n"
+      "    }\n"
+      "    for (i = 2; i < n; i++) {\n"
+      "        if (n % i == 0) {\n"
+      "            isPrime = 0;\n"
+      "            break;\n"
+      "        }\n"
+      "    }\n"
+      "    if (isPrime) {\n"
+      "        printf(\"%d is a prime number.\\n\", n);\n"
+      "    } else {\n"
+      "        printf(\"%d is not a prime number.\\n\", n);\n"
+      "    }\n"
+      "    return 0;\n"
+      "}\n",
+      "n = int(input(\"Enter a number: \"))\n"
+      "is_prime = True\n"
+      "if n < 2:\n"
+      "    is_prime = False\n"
+      "for i in range(2, n):\n"
+      "    if n % i == 0:\n"
+      "        is_prime = False\n"
+      "        break\n"
+      "if is_prime:\n"
+      "    print(n, \"is a prime number.\")\n"
+      "else:\n"
+      "    print(n, \"is not a prime number.\")\n" },
+    { "Simple Calculator", "simple-calculator",
+      "#include <iostream>\n"
+      "using namespace std;\n"
+      "\n"
+      "int main() {\n"
+      "    double a, b;\n"
+      "    char op;\n"
+      "    cout << \"Enter first number: \";\n"
+      "    cin >> a;\n"
+      "    cout << \"Enter operator (+ - * /): \";\n"
+      "    cin >> op;\n"
+      "    cout << \"Enter second number: \";\n"
+      "    cin >> b;\n"
+      "\n"
+      "    switch (op) {\n"
+      "        case '+':\n"
+      "            cout << \"Result = \" << a + b << endl;\n"
+      "            break;\n"
+      "        case '-':\n"
+      "            cout << \"Result = \" << a - b << endl;\n"
+      "            break;\n"
+      "        case '*':\n"
+      "            cout << \"Result = \" << a * b << endl;\n"
+      "            break;\n"
+      "        case '/':\n"
+      "            if (b == 0) {\n"
+      "                cout << \"Cannot divide by zero.\" << endl;\n"
+      "            } else {\n"
+      "                cout << \"Result = \" << a / b << endl;\n"
+      "            }\n"
+      "            break;\n"
+      "        default:\n"
+      "            cout << \"Unknown operator.\" << endl;\n"
+      "    }\n"
+      "    return 0;\n"
+      "}\n",
+      "#include <stdio.h>\n"
+      "\n"
+      "int main() {\n"
+      "    double a, b;\n"
+      "    char op;\n"
+      "    printf(\"Enter first number: \");\n"
+      "    scanf(\"%lf\", &a);\n"
+      "    printf(\"Enter operator (+ - * /): \");\n"
+      "    scanf(\" %c\", &op);\n"
+      "    printf(\"Enter second number: \");\n"
+      "    scanf(\"%lf\", &b);\n"
+      "\n"
+      "    switch (op) {\n"
+      "        case '+':\n"
+      "            printf(\"Result = %g\\n\", a + b);\n"
+      "            break;\n"
+      "        case '-':\n"
+      "            printf(\"Result = %g\\n\", a - b);\n"
+      "            break;\n"
+      "        case '*':\n"
+      "            printf(\"Result = %g\\n\", a * b);\n"
+      "            break;\n"
+      "        case '/':\n"
+      "            if (b == 0) {\n"
+      "                printf(\"Cannot divide by zero.\\n\");\n"
+      "            } else {\n"
+      "                printf(\"Result = %g\\n\", a / b);\n"
+      "            }\n"
+      "            break;\n"
+      "        default:\n"
+      "            printf(\"Unknown operator.\\n\");\n"
+      "    }\n"
+      "    return 0;\n"
+      "}\n",
+      "a = float(input(\"Enter first number: \"))\n"
+      "op = input(\"Enter operator (+ - * /): \")\n"
+      "b = float(input(\"Enter second number: \"))\n"
+      "\n"
+      "if op == \"+\":\n"
+      "    print(\"Result =\", a + b)\n"
+      "elif op == \"-\":\n"
+      "    print(\"Result =\", a - b)\n"
+      "elif op == \"*\":\n"
+      "    print(\"Result =\", a * b)\n"
+      "elif op == \"/\":\n"
+      "    if b == 0:\n"
+      "        print(\"Cannot divide by zero.\")\n"
+      "    else:\n"
+      "        print(\"Result =\", a / b)\n"
+      "else:\n"
+      "    print(\"Unknown operator.\")\n" },
+    { "Sum and Average", "sum-and-average",
+      "#include <iostream>\n"
+      "using namespace std;\n"
+      "\n"
+      "int main() {\n"
+      "    int n, i;\n"
+      "    double num, sum = 0;\n"
+      "    cout << \"How many numbers? \";\n"
+      "    cin >> n;\n"
+      "    for (i = 1; i <= n; i++) {\n"
+      "        cout << \"Enter number \" << i << \": \";\n"
+      "        cin >> num;\n"
+      "        sum = sum + num;\n"
+      "    }\n"
+      "    cout << \"Sum = \" << sum << endl;\n"
+      "    cout << \"Average = \" << sum / n << endl;\n"
+      "    return 0;\n"
+      "}\n",
+      "#include <stdio.h>\n"
+      "\n"
+      "int main() {\n"
+      "    int n, i;\n"
+      "    double num, sum = 0;\n"
+      "    printf(\"How many numbers? \");\n"
+      "    scanf(\"%d\", &n);\n"
+      "    for (i = 1; i <= n; i++) {\n"
+      "        printf(\"Enter number %d: \", i);\n"
+      "        scanf(\"%lf\", &num);\n"
+      "        sum = sum + num;\n"
+      "    }\n"
+      "    printf(\"Sum = %g\\n\", sum);\n"
+      "    printf(\"Average = %g\\n\", sum / n);\n"
+      "    return 0;\n"
+      "}\n",
+      "n = int(input(\"How many numbers? \"))\n"
+      "total = 0\n"
+      "for i in range(1, n + 1):\n"
+      "    num = float(input(\"Enter number \" + str(i) + \": \"))\n"
+      "    total = total + num\n"
+      "print(\"Sum =\", total)\n"
+      "print(\"Average =\", total / n)\n" },
+};
+
+} // namespace
+
+void MainWindow::onWelcomeTemplates()
+{
+    // A small picker menu in the app's own menu style — the Home
+    // screen itself stays uncluttered: one glass tile, no template
+    // names on the wallpaper.
+    QMenu menu(this);
+    menu.setStyleSheet(
+        "QMenu { font-size: 10.5pt; }"
+        "QMenu::item { padding: 2px 24px 2px 12px; }"
+        "QMenu::item:selected { background: #2f6fb2; color: #ffffff; }");
+    const int count = int(sizeof(DBS_TEMPLATES) / sizeof(DBS_TEMPLATES[0]));
+    auto addLanguage = [&](const QString &title, int lang) {
+        QMenu *sub = menu.addMenu(title);
+        for (int i = 0; i < count; ++i) {
+            QAction *act = sub->addAction(
+                        QString::fromLatin1(DBS_TEMPLATES[i].name));
+            act->setData(i * 10 + lang); // decode after exec()
+        }
+    };
+    addLanguage(tr("C++"), 0);
+    addLanguage(tr("C"), 1);
+    addLanguage(tr("Python"), 2);
+    QAction *chosen = menu.exec(QCursor::pos());
+    if (!chosen)
+        return;
+    const int tmplIndex = chosen->data().toInt() / 10;
+    const int lang = chosen->data().toInt() % 10;
+    if (tmplIndex < 0 || tmplIndex >= count)
+        return;
+    const DbsProgramTemplate &tmpl = DBS_TEMPLATES[tmplIndex];
+    const char *codeText = lang == 0 ? tmpl.cpp
+                                     : (lang == 1 ? tmpl.c : tmpl.python);
+    const QString ext = lang == 0 ? ".cpp" : (lang == 1 ? ".c" : ".py");
+    const QString filter = lang == 0 ? tr("C++ files (*.cpp)")
+                                     : (lang == 1 ? tr("C files (*.c)")
+                                                  : tr("Python files (*.py)"));
+
+    // His save-first flow, exactly like New Document.
+    QString startDir = QStandardPaths::writableLocation(
+                QStandardPaths::DocumentsLocation);
+    QString path = QFileDialog::getSaveFileName(
+                this, tr("New from template — choose where to save it"),
+                startDir + "/" + QString::fromLatin1(tmpl.slug) + ext,
+                filter);
+    if (path.isEmpty())
+        return;
+    QFileInfo info{path};
+    if (!info.exists() || info.size() == 0) {
+        QFile file{path};
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            statusBar()->showMessage(
+                        tr("Could not create the file %1.").arg(path), 6000);
+            return;
+        }
+        file.write(codeText);
+        file.close();
+    }
+    Editor *editor = nullptr;
+    try {
+        editor = mEditorManager->newEditor(
+                    path, pSettings->editor().defaultEncoding(),
+                    FileType::None, QString(), false, false);
+    } catch (...) {
+        editor = nullptr;
+    }
+    if (editor) {
+        mEditorManager->activeEditor(editor, true);
+        statusBar()->showMessage(
+                    tr("Template '%1' is open — edit it, then run it "
+                       "like any program.").arg(
+                        QString::fromLatin1(tmpl.name)), 8000);
+    } else {
+        statusBar()->showMessage(
+                    tr("The file was saved, but could not be opened: %1")
+                    .arg(path), 6000);
+    }
+}
+
 
 // ---------------------------------------------------------------------------
 // helpers

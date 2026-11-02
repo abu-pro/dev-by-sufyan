@@ -34,7 +34,34 @@
 class QWidget;
 
 // Shows a modeless explanation window for one compiler issue.
-void dbsShowIssueExplanation(QWidget *parent, const PCompileIssue &issue);
+// ---------------------------------------------------------------------------
+// v1.5.1 "Fix Lagao": a deterministic one-click fix computed for one issue.
+// Filled by dbsComputeIssueFix() from the dictionary entry + the live file
+// text; the dialog shows it BEFORE anything is applied, and applying goes
+// through the editor's normal undo (Ctrl+Z reverses it).
+// ---------------------------------------------------------------------------
+struct DbsFixAction {
+    bool valid = false;        // false = no safe one-click fix for this issue
+    bool insertLine = false;   // true: insert newLineText as a new line at
+                               // index line0 (== line count appends at EOF);
+                               // false: replace line line0 with newLineText
+    int line0 = -1;            // 0-based target line (editor numbering)
+    QString expectedOldLine;   // replace fixes: the exact current line the
+                               // fix was computed from (re-validated at apply)
+    QString newLineText;       // the resulting line (replace) or the new
+                               // line's text (insert)
+    QString summary;           // one plain sentence for the user
+};
+
+// v1.5.1: shows the explanation, plus — when `fix` is valid — the exact
+// line that will result and the apply buttons. applyFix(false) applies
+// only; applyFix(true) applies and starts the Fix & Recheck recompile.
+// The callback returns true when the edit really happened.
+void dbsShowIssueExplanation(QWidget *parent, const PCompileIssue &issue,
+                             const DbsFixAction &fix,
+                             const std::function<bool(bool)> &applyFix);
+// v1.5.1: the searchable error dictionary window (Help menu / Issues menu).
+void dbsShowErrorDictionary(QWidget *parent);
 
 struct RunAllJob {
     QString name;     // member display name

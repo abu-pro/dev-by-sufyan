@@ -114,11 +114,22 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     joinRow->addWidget(mJoinButton);
     joinLayout->addLayout(joinRow);
     layout->addWidget(mJoinBox);
+    // v1.5.1: the join controls must hug their natural height — the
+    // v1.5.0 panel let this box soak up the panel's empty space.
+    mJoinBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 
     // ---- Tabs (visible while in a room) ---------------------------------
     mTabs = new QTabWidget{this};
     mTabs->setVisible(false);
-    layout->addWidget(mTabs, 1);
+    // Stretch 0 at birth: the panel starts NOT in a room; setInRoom()
+    // raises this to 1 and setNotInRoom() drops it back to 0.
+    layout->addWidget(mTabs, 0);
+    // v1.5.1: a trailing spring UNDER everything. While not in a room
+    // the hidden tab widget's stretch used to leave a giant empty void
+    // in the panel (flagged from the v1.5.0 screenshot); now this
+    // spring absorbs the leftover space below the compact join
+    // controls, and setInRoom() hands the stretch to the tabs instead.
+    layout->addStretch();
 
     // Room tab
     auto *roomTab = new QWidget{mTabs};
@@ -256,6 +267,9 @@ void RoomsPanel::setInRoom(const QString &code, const QString &role,
         : tr("You are a member of this room."));
     mJoinBox->setVisible(false);
     mTabs->setVisible(true);
+    // v1.5.1: in a room, the tabs own the panel's stretch again.
+    if (auto *box = qobject_cast<QVBoxLayout *>(layout()))
+        box->setStretchFactor(mTabs, 1);
     mMessagesButton->setVisible(true);
     // v1.5.0: ping indicator starts in its grey "waiting" state; the
     // first measured ping replaces it within a few seconds.
@@ -285,6 +299,10 @@ void RoomsPanel::setNotInRoom(const QString &message)
     mJoinBox->setVisible(true);
     mJoinBox->setEnabled(true);
     mTabs->setVisible(false);
+    // v1.5.1: hand the panel's stretch to the trailing spring while
+    // not in a room (see the constructor note).
+    if (auto *box = qobject_cast<QVBoxLayout *>(layout()))
+        box->setStretchFactor(mTabs, 0);
     mStatusLabel->setText(message.isEmpty() ? tr("Not in a room") : message);
 }
 

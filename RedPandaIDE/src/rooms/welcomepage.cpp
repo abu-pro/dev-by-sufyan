@@ -151,6 +151,11 @@ WelcomePage::WelcomePage(QWidget *parent) :
                                tr("Appearance options"));
     auto *fontTile = makeTile(tr("Change Font"),
                               tr("Editor font options"));
+    // v1.5.1: program templates — same glass tile as the others, one
+    // more row in the same column (the artwork's face side is never
+    // covered; the layout just grows downward like it did for tiles).
+    auto *templatesTile = makeTile(tr("Program Templates"),
+                                   tr("Ready-made programs to start from"));
     auto *continueTile = makeTile(tr("Continue Coding"),
                                   tr("Go back to your open files"));
     mContinueTile = continueTile;
@@ -160,7 +165,8 @@ WelcomePage::WelcomePage(QWidget *parent) :
     tiles->addWidget(roomsTile, 1, 1);
     tiles->addWidget(themeTile, 2, 0);
     tiles->addWidget(fontTile, 2, 1);
-    tiles->addWidget(continueTile, 3, 0, 1, 2);
+    tiles->addWidget(templatesTile, 3, 0, 1, 2);
+    tiles->addWidget(continueTile, 4, 0, 1, 2);
     col->addLayout(tiles);
 
     // ---- Recent files (v1.3.2): filled from the visit history ---------
@@ -213,6 +219,8 @@ WelcomePage::WelcomePage(QWidget *parent) :
             this, &WelcomePage::themeRequested);
     connect(fontTile, &QPushButton::clicked,
             this, &WelcomePage::fontRequested);
+    connect(templatesTile, &QPushButton::clicked,
+            this, &WelcomePage::templatesRequested);
 
     loadArtworks();
     applyAccentStyles();

@@ -163,25 +163,29 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.5.0 release with the installer and the
+      # Publishes (or updates) the v1.5.1 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.0
-          name: Dev by Sufyan — Red Panda Edition (v1.5.0)
+          tag_name: v1.5.1
+          name: Dev by Sufyan — Red Panda Edition (v1.5.1)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.5.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.5.1)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.5.0:
-            - **Bigger easy-words error dictionary** — the built-in offline explanations more than doubled (107 entries): many more GCC/MinGW C and C++ errors and warnings, plus the common Python errors (SyntaxError, NameError, TypeError, IndexError, KeyError, ZeroDivisionError and friends) — each with what it means and how to fix it in simple words
-            - **Live ping indicator in Rooms** — the Rooms panel header now shows a coloured dot + milliseconds (green = good, yellow = slow, red = very slow or no reply), measured live while you are in a room
-            - **Bigger rooms** — the admin can now allow up to 60 members in a room (was 50)
-            - **Updates install from inside the app** — from this version on, when a newer version is found, "Download & Install" downloads the setup inside the app with a progress bar and opens it for you; no browser trip. Coming FROM v1.4.0, this release is announced the same way as before and its Download opens the setup in your browser — run it once and you are on v1.5.0
+            New in v1.5.1:
+            - **Fix Lagao — one-click fixes for compiler errors** — double-click an error in the Issues list; when the repair is certain (a missing `;`, a missing `)` or `}`, a missing `:` in Python, a missing `#include` like `<iostream>`, the compiler's own "did you mean" name, Python `print` without brackets), the explanation now shows the exact line that will result and a **Fix it for me** button applies it — through the normal editor undo, so Ctrl+Z takes it back
+            - **Fix & Recheck** — the second button applies the fix and immediately recompiles the file, then honestly reports whether that same error is gone or still there
+            - **Error dictionary doubled again: 210 entries** (was 107) — many more GCC/MinGW C and C++ messages (format mismatches, pointer and conversion warnings, switch/case, array/string traps, preprocessor problems, linker leftovers) and a much deeper Python set (unpacking, imports, files, iteration, formatting) — plus a new **Error Dictionary window** (Help menu, or right-click in the Issues list) to search and browse all 210 without compiling
+            - **Rooms panel tidied** — the not-in-a-room view no longer wastes a big empty gap above the Create/Join controls
+            - **Program Templates on the Home page** — Multiplication Table, Factorial, Prime Check, Simple Calculator and Sum & Average in C++, C and Python: pick one and it opens as a new saved document, ready to run and edit
+            - **Web app: ping indicator too** — the browser version of Rooms now shows the same coloured ping dot + ms while you are in a room
 
-            Everything from v1.4.0 is still here: auto-save + crash recovery, easy-words error explanations, the update check, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo and flowchart.
+            Updating from v1.5.0: this is the first release delivered through the in-app updater — when the app offers it, **Download & Install** downloads the setup inside the app, then opens it; run it once (install-over) and your files and settings stay as they are.
+
+            Everything from v1.5.0 is still here: 60-member rooms, the live ping indicator, in-app update installs, auto-save + crash recovery, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo and flowchart.
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed

@@ -29,6 +29,8 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QMessageBox>
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
@@ -52,6 +54,7 @@
 
 #include "../editor.h"
 #include "../editormanager.h"
+#include "../compiler/compilermanager.h"
 #include "../settings.h"
 #include "dbsfeatures.h"
 #include "roomclient.h"
@@ -63,7 +66,7 @@ namespace {
 
 // The one place the running version is named for the update checker;
 // the welcome page shows the same number (see setupWelcomePage).
-const char *const DBS_VERSION = "1.5.0";
+const char *const DBS_VERSION = "1.5.1";
 const char *const DBS_QUICKSAVE_KEY = "dbs/quickSaveEnabled";
 
 bool quickSaveEnabled()
@@ -95,11 +98,71 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "A name the compiler does not know",
       "You used a variable or function name that the compiler has never seen. Either it is a typing mistake, or the name was never created, or the header file / line that creates it is missing.",
       "Check the spelling first. If it is a variable, declare it before this line (for example: int x;). If it is a library function, add its #include at the top of the file." },
+    // v1.5.1: must sit before the plain "incompatible types" entry —
+    // pointer mix-ups (missing &, extra *) deserve their own words.
+    { "incompatible pointer",
+      "A memory address and a different kind of address are mixed (C)",
+      "In C, an int* (address of an int) and a char* (address of text) are different kinds of address. You gave one where the other was needed — often a missing & or an extra * in a scanf/printf call, or an array handed over the wrong way.",
+      "Check the variable's declared type against what the function wants. For scanf of a number you must give the address: scanf(\"%d\", &x); For an array/text you give the name itself: scanf(\"%s\", name);" },
     // ---- Python errors (v1.5.0) — the messages Python itself prints.
     { "'return' outside function|'break' outside loop|'continue' not properly in loop|cannot assign to literal|cannot assign to function call",
       "This statement is standing in the wrong place (Python)",
       "Some statements only work in their own home: return only inside a def, break/continue only inside a loop. And a value can only be stored INTO a variable — you cannot assign to a plain number or to a function call.",
       "Move the statement inside the right block, or store the result into a variable name first (total = ...). If you wanted to COMPARE two things, remember: = stores, == compares." },
+    // ---- Python specifics (v1.5.1) — these must sit BEFORE the plain
+    // "SyntaxError" entry below, or that one would swallow them all.
+    { "SyntaxError: expected ':'",
+      "A colon (:) is missing at the end of the line (Python)",
+      "Lines that open a block — if, elif, else, for, while, def, class, try, except, with — must end with a colon. Python read this line and the colon was not there.",
+      "Add ':' at the very end of that line. Nothing should come after the colon on the same line." },
+    { "Missing parentheses in call to",
+      "print needs round brackets (Python)",
+      "In today's Python, print is a function, so the values go inside round brackets: print(x). Writing print x is the old Python 2 style and is not allowed any more.",
+      "Put the values inside brackets: print(\"Hello\"), print(total)." },
+    { "invalid character",
+      "A strange character is hiding in the code (Python)",
+      "The code contains a character Python does not accept — very often 'smart quotes' copied from a document or a chat, or another invisible symbol. The message even shows which character it is, like (U+201C).",
+      "Retype the punctuation on that line yourself with the keyboard: normal quotes and apostrophes, never the curly ones from Word or WhatsApp." },
+    { "was never closed|unexpected EOF while parsing",
+      "A bracket was opened but never closed (Python)",
+      "Somewhere above, a ( or [ or { was opened and its closing partner never came. Python reached the end of the file still waiting for it — the message points at the bracket that was left open.",
+      "Find the bracket the message points at and count its partners: every ( needs a ), every [ a ], every { a }. Add the missing closing bracket at the right place." },
+    { "leading zeros in decimal",
+      "A number starts with a zero (Python)",
+      "Writing a number like 007 or 0123 is not allowed in Python — it once meant a different number system (octal) and caused silent mistakes, so Python refuses it.",
+      "Remove the starting zero: write 7 or 123. If the zeros were part of a code or text (like '007'), put it in quotes so it is text." },
+    { "global declaration",
+      "The global statement is standing too late (Python)",
+      "Inside a function you wrote 'global x', but x was already used or assigned above that line in the same function. Python wants the global promise before the name is touched.",
+      "Move the 'global x' line to the very top of the function, before any line that uses x." },
+    { "duplicate argument",
+      "The same parameter name is written twice (Python)",
+      "In the def line, one parameter name appears two times, like def f(a, a): — Python cannot tell which one a value belongs to.",
+      "Give each parameter its own different name in the def line, and use the matching names inside the function." },
+    { "non-default argument follows default",
+      "A normal parameter is standing after a defaulted one (Python)",
+      "Once a parameter gets a default value in the def line, every parameter after it must also have a default. A plain parameter after a defaulted one leaves Python unsure which value goes where.",
+      "Either give the later parameter a default too, or move the defaulted parameters to the end of the def line." },
+    { "argument follows keyword argument|keyword argument repeated",
+      "The call mixes values in the wrong order (Python)",
+      "In a function call, plain values (positional) must come first; values written as name=value come after. Or the same name=value was given twice in one call.",
+      "Put the plain values first and the name=value ones after, and give each name only once: f(10, b=20)." },
+    { "starred expression|can't use starred",
+      "The * is used in a place Python does not allow",
+      "A * before a value (unpacking) only works in special places: in a call like f(*items), inside a list like [*a, *b], or on the left side of =. Standing alone in an expression it has no meaning.",
+      "Use the * only where unpacking makes sense, or remove it. If you meant multiplication, something must stand on both sides: a * b." },
+    { "cannot assign to expression|cannot assign to operator",
+      "The left side of = cannot hold a value (Python)",
+      "The left side of = must be a name (or a place in a list/dictionary). Here it is a calculation or expression — Python cannot store a result INTO a calculation.",
+      "Store into a variable name first: result = a + b. And if you meant to compare two things, use == instead of =." },
+    { "free variable",
+      "An inner function uses a name from outside too early (Python)",
+      "A function inside another function reads a name from the outer function, but the outer function only gives that name its value after the inner one runs — or the inner function assigns to it without saying 'nonlocal'.",
+      "Give the outer name its value before the inner function is called. If the inner function must change it, write 'nonlocal name' at the top of the inner function." },
+    { "'yield' outside|'await' outside",
+      "yield / await used outside their home (Python)",
+      "yield only works inside a generator function (a def), and await only inside an async def. Used anywhere else, Python stops immediately.",
+      "Move the yield inside a def, or the await inside an 'async def'. If you only wanted to pause the program, time.sleep(seconds) is the plain way." },
     { "SyntaxError",
       "Python cannot understand this line (SyntaxError)",
       "Python read your code and one line does not follow Python's grammar — a missing colon after if/for/def, a missing or extra bracket, or '=' used where '==' was meant are the usual causes. The ^ marker in the message points at the spot.",
@@ -140,6 +203,85 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "The function call has the wrong arguments (Python)",
       "The call does not match the function's def line: too many values, too few, or a keyword the function does not have. When the message says it 'takes 2 but 3 were given', the hidden extra is often 'self' being counted — or a method called on the class instead of on an object.",
       "Compare the call with the def line, argument by argument, in order. For methods, call them on an object (obj.method(...)) so 'self' is filled in automatically." },
+    // ---- More Python specifics (v1.5.1) — these must sit BEFORE the
+    // plain "TypeError" and "ValueError" entries below, or those
+    // generic entries would swallow them.
+    { "not enough values to unpack|too many values to unpack|cannot unpack",
+      "The two sides of = do not have the same count (Python)",
+      "With a line like a, b = values, the number of names on the left must match the number of values on the right. Here they do not — too few values came, too many came, or the right side cannot be unpacked at all.",
+      "Print or check the right side first to see how many values it really has, then make the left side match it exactly." },
+    { "math domain error",
+      "That maths is not possible with these numbers (Python)",
+      "The math module was asked for something undefined for real numbers — like the square root of a negative number, or the log of zero or a negative number.",
+      "Check the value before the call: math.sqrt needs 0 or more, math.log needs more than 0. Use abs() if the sign was not meant to matter." },
+    { "substring not found",
+      "The text you searched for is not inside (Python)",
+      "str.index() was asked to find a piece of text that is not there. index() complains loudly when it cannot find it — its calmer brother find() returns -1 instead.",
+      "Use find() when 'not found' is a normal possibility, or check first: if piece in text: ... (spelling and capital letters must match exactly)." },
+    { "not in list",
+      "That value is not in the list (Python)",
+      "list.remove(x) or list.index(x) was given a value the list does not contain. Maybe the spelling or capital letters differ, or the value was never added.",
+      "Check membership before removing or searching: if x in items: items.remove(x). Print the list once to see what is really inside." },
+    { "is not iterable",
+      "That value cannot be looped over (Python)",
+      "A for loop, an unpacking, or a function like list()/sum() was given a single plain value (like a number or None) where a collection — list, text, range — was expected. A single number has no items to walk through.",
+      "Check what the variable really holds. To loop a counted number of times use range(n); to loop over the digits/characters of a value, turn it into text first: str(value)." },
+    { "has no len\\(\\)",
+      "len() was used on something with no length (Python)",
+      "len() only works on things with items or characters: text, list, tuple, dictionary. A plain number or None has no length.",
+      "If you want the number of digits of a number, turn it into text first: len(str(number)). Otherwise remove the len() call." },
+    { "multiply sequence",
+      "Text or a list can only be repeated by a whole number (Python)",
+      "In Python, 'ab' * 3 repeats text — but the multiplier must be a whole number. Here it was text or a decimal, so Python does not know how many times to repeat.",
+      "Make the count a whole number: int(count). If you wanted normal maths multiplication, both sides must be numbers, not text." },
+    { "bad operand type",
+      "That sign cannot be used on this kind of value (Python)",
+      "A sign like - or ~ was put in front of a value it does not work on — for example -'text'. Minus needs a number.",
+      "Turn the value into a number first if that is what you meant: -int(text). Otherwise remove the sign." },
+    { "unhashable type",
+      "A list cannot be a dictionary key or set member (Python)",
+      "Dictionary keys and set members must be unchangeable (hashable). A list can change, so it is not allowed as a key — that is what 'unhashable' means here.",
+      "Use a tuple instead of a list for the key: (1, 2) instead of [1, 2]. Or use a text or number that names the thing." },
+    { "does not support item assignment",
+      "That value cannot be changed piece by piece (Python)",
+      "You tried to change one item inside something unchangeable — like text (str) or a tuple: text[0] = 'A' is not allowed, because text never changes in place.",
+      "Build a new value instead: new_text = 'A' + text[1:]. For things you need to change often, use a list instead of a tuple or text." },
+    { "cannot be interpreted as an integer",
+      "A whole number was needed here (Python)",
+      "Something like range(), a list index, or a size asked for a whole number, and a decimal (float) or other value was given.",
+      "Round it or cut the decimal part: int(value). If a whole number was expected, check the calculation that produced the decimal." },
+    { "bytes-like object is required",
+      "Bytes were needed, but text was given (Python)",
+      "This place (often a file opened with 'b', or bytes work) needs raw bytes, and normal text (str) was given. Python 3 keeps text and bytes strictly separate.",
+      "Turn text into bytes with text.encode(), or open the file in text mode (without 'b') if you only handle text." },
+    { "ord\\(\\) expected",
+      "ord() wants exactly one character (Python)",
+      "ord() gives the code number of ONE single character. It was given text that is empty or longer than one character.",
+      "Give ord() one character only — for a longer text, loop over it: for ch in text: print(ord(ch))." },
+    { "expected str instance",
+      "join() can only join pieces of text (Python)",
+      "Something like ' '.join(items) needs every item to be text. One of the items is a number or another type, and join refuses to guess how to write it.",
+      "Turn every piece into text first: ' '.join(str(x) for x in items), or make the values text when you create them." },
+    { "unsupported format character",
+      "A wrong letter after % in a format text (Python)",
+      "In old-style text formatting ('%d' % value), only certain letters may follow %: %d number, %s anything, %f decimal. Another letter was used, and Python does not know it.",
+      "Use %d for whole numbers, %f for decimals, %s for anything — or switch to an f-string: f\"value is {value}\"." },
+    { "not all arguments converted",
+      "Too many values for the % places in the text (Python)",
+      "In old-style formatting ('%d and %d' % values), the number of % places in the text must match the number of values exactly. Here extra values were left over at the end.",
+      "Count the % places in the text and give exactly that many values, or add the missing %d/%s places for the extra values." },
+    { "update sequence",
+      "The dictionary was fed values in the wrong shape (Python)",
+      "dict(...) or dict.update(...) expects pairs like (key, value). One of the items it received is not a pair of exactly two things.",
+      "Give pairs: dict([('a', 1), ('b', 2)]) — or build the dictionary step by step: d[key] = value." },
+    { "exceptions must derive|exceptions must be classes or instances",
+      "raise was given something that is not an error (Python)",
+      "After raise you may only put an exception — a built-in one like ValueError('message'), or your own class built from Exception. A number, text, or normal class cannot be raised.",
+      "Raise a real exception: raise ValueError('what went wrong')." },
+    { "not enough arguments for format",
+      "Too few values for the % places in the text (Python)",
+      "In old-style formatting, the text has more % places than the values given, so one %d/%s has nothing to show.",
+      "Give one value for every % place in the text — with brackets around the values when there are several: '%d and %d' % (a, b)." },
     { "TypeError",
       "A value of the wrong type was used (Python TypeError)",
       "Python was given a value of a kind it cannot use in this place — like len() of a number, sorting a mix of text and numbers, or trying to change something that cannot be changed (a tuple).",
@@ -188,6 +330,33 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "An assert check failed (Python)",
       "An assert line tested something and it was False, so the program stopped on purpose. This is a checking tool, not a crash: it tells you a value was not what the code expected.",
       "Print the values used in the assert just above the failing line and find why the expectation is wrong — either the value or the expectation needs fixing." },
+    // ---- Last Python additions (v1.5.1): these error classes have no
+    // generic entry above them, so they are safe at the end of the
+    // Python block.
+    { "changed size during iteration|dictionary keys changed during iteration",
+      "The list/dictionary changed while looping over it (Python)",
+      "You added or removed items from the very list/dictionary your for loop was walking through. Python loses its place, so it stops the program instead of guessing.",
+      "Loop over a copy: for x in list(items): ... and change the original inside. Or collect the changes in a new list and apply them after the loop." },
+    { "EOFError|EOF when reading a line",
+      "The input ended sooner than expected (Python)",
+      "input() was called but there was no more input to read — for example the program asked for more lines than the given test input has, or the input stream was closed.",
+      "Check how many times the program asks for input against how many lines of input it gets. If the input may end early, catch it with try/except EOFError." },
+    { "IsADirectoryError|NotADirectoryError|Is a directory",
+      "A folder was treated as a file (Python)",
+      "The path points to a folder (directory), but the code tried to open or read it as a file — or the other way round: a file was used where a folder was expected.",
+      "Check the path: print it once and make sure it ends at the file name, not at its folder." },
+    { "UnicodeDecodeError|codec can't decode|codec cannot decode",
+      "The file's letters could not be read as that encoding (Python)",
+      "The file was saved in one character encoding (the way letters are stored as bytes), and Python tried to read it as another. Some byte in the file is not valid in the expected encoding.",
+      "Open it with the encoding it was saved in, for example open(path, encoding='utf-8'), or encoding='latin-1' for old files. Re-saving the file as UTF-8 also fixes it for good." },
+    { "Expecting value|Expecting ',' delimiter|Expecting property name|JSONDecodeError",
+      "The JSON text is written wrongly (Python)",
+      "json.loads()/json.load() read text that is not valid JSON — often a plain word instead of JSON, an empty reply, single quotes instead of double quotes, or a missing comma between items.",
+      "Print the raw text first and look at it: JSON uses double quotes for names and text, commas between items, and no trailing comma. An empty text is not JSON at all." },
+    { "StopIteration",
+      "next() was called but nothing is left (Python)",
+      "next() asked an iterator for one more item, but it is finished — there is no next item. When this escapes outside a loop, Python shows it as an error.",
+      "Give next() a safety value: next(it, None) — then check for None. Or use a normal for loop, which stops by itself." },
     { "expected ';'",
       "A semicolon (;) is missing",
       "Almost every statement in C/C++ must end with a semicolon. The compiler reached this point and did not find one.",
@@ -264,6 +433,30 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "A result was thrown away (warning)",
       "The function gives back a value that tells you something (often 'did it work?'), and the code ignores it. For scanf this usually does no harm in class programs, but for file functions it can hide a real failure.",
       "Either use the result (store it in a variable and check it), or ignore this warning while learning — the program still runs." },
+    // ---- v1.5.1 early specifics: these message-shaped entries must
+    // sit BEFORE the bare-word header hints right below (cin/cout,
+    // printf, string...), because their messages can MENTION those
+    // words — the simulation caught the hints swallowing them.
+    { "implicit declaration of function",
+      "A function is used before the compiler knows it (C)",
+      "In C, a function must be declared (or defined) ABOVE the place where it is first called. Here the call comes first.",
+      "Move the function's definition above main, or write its declaration (name, return type, parameters + ;) above the call. Also check the #include for library functions." },
+    { "too few arguments for format|too many arguments for format",
+      "printf has the wrong number of values (warning)",
+      "The format text has a different number of % places (%d, %s, ...) than the values given after it. printf pairs them one by one in order, so a mismatch means garbage output or a crash.",
+      "Count the % places in the text and give exactly that many values, in the same order. This is about printf's OWN values — a function call with the wrong count is a different error." },
+    { "format not a string literal",
+      "printf got its instructions from a variable (warning)",
+      "printf's first argument should normally be a fixed text in quotes. Here it is a variable — if that text ever contains a %, printf will read it as an instruction and print garbage or crash.",
+      "Write printf(\"%s\", text) when you want to print a variable's text as-is. Only put % codes in a fixed quoted text you control." },
+    { "comparison with string literal",
+      "Text compared with == instead of strcmp (warning)",
+      "Two pieces of text were compared with ==. For char* text that compares the ADDRESSES (where the text lives), not the letters — so equal-looking text can still compare as different.",
+      "Use strcmp(a, b) == 0 to compare C text (needs <cstring>). In C++, make them std::string and == works on the letters." },
+    { "stringop-overflow|stringop-truncation|format-overflow|format-truncation|output truncated|into a region of size",
+      "The text may not fit into that array (warning)",
+      "A copy or printf-into-array can write more characters than the target char array can hold — including the invisible \\0 that must end every C text. Overflow writes into neighbouring memory.",
+      "Make the target array bigger than the longest possible text plus 1 for the \\0, or use the n-forms (strncpy, snprintf) with the array's real size." },
     { "\\bcin\\b|\\bcout\\b|\\bendl\\b",
       "cout / cin needs <iostream>",
       "cout, cin and endl live in the <iostream> header and in the std namespace. Without them the compiler does not know these names.",
@@ -320,7 +513,7 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "A problem on a # line",
       "Lines starting with # are instructions for the compiler itself (#include, #define). Something on this line is not written the way those instructions must be.",
       "Check this # line for typing mistakes. #include needs <file> or \"file\" right after it; a #define needs a name and a value." },
-    { "missing terminating ' character|missing terminating \" character|unterminated",
+    { "missing terminating ' character|missing terminating \" character|unterminated character|unterminated string",
       "A quote was never closed",
       "Text in \"double quotes\" or a letter in 'single quotes' must end with the same quote on the same line. One is missing here.",
       "Find the text on this line and close the quote. Remember: 'x' is ONE letter; \"x\" is text — do not mix the two." },
@@ -336,7 +529,7 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "A variable is declared but never used (just a warning)",
       "You created this variable and then never read it. The program still works — this is only a hint, often a sign of a forgotten step.",
       "Either use the variable where you meant to, or delete its declaration. Safe to ignore while learning." },
-    { "comparison between signed and unsigned|sign-compare",
+    { "comparison between signed and unsigned|sign-compare|different signedness",
       "Comparing a signed and an unsigned number (warning)",
       "One side of the comparison can hold negative numbers, the other cannot. For very large or negative values the comparison can surprise you.",
       "Make both sides the same type — for loop counters compared with .size(), use std::size_t or int consistently." },
@@ -344,10 +537,6 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "printf format and value do not match",
       "In printf, each % code must match the type of the value after it: %d for int, %f for float/double, %c for char, %s for text.",
       "Compare each % in the format text with its value, in order, and fix the code or the value so the types match." },
-    { "implicit declaration of function",
-      "A function is used before the compiler knows it (C)",
-      "In C, a function must be declared (or defined) ABOVE the place where it is first called. Here the call comes first.",
-      "Move the function's definition above main, or write its declaration (name, return type, parameters + ;) above the call. Also check the #include for library functions." },
     { "unknown type name",
       "That type name does not exist",
       "You used a word as a type (like a variable's kind) that the compiler does not know — a typo, a missing #include, or a class you forgot to define above.",
@@ -517,6 +706,249 @@ const ErrorExplanation ERROR_DICTIONARY[] = {
       "This comparison can only ever go one way (warning)",
       "The values that can reach this comparison make the answer always true or always false — for example comparing an unsigned value with < 0, or a char with a number far outside its range. The code probably does not do what you planned.",
       "Check the types and the possible ranges of both sides; the condition or one of the values is not what you think it is." },
+    // ---- More GCC/MinGW C and C++ (v1.5.1) — real warning/error
+    // texts the first 107 did not cover. Placed late on purpose: every
+    // pattern here was checked not to be swallowed by an earlier entry.
+    { "spurious trailing",
+      "A % sign is left over in the format text (warning)",
+      "The format text ends with a % that has no letter after it, so it is not a real format code. printf does not know what to print for it.",
+      "Remove the lonely %, or complete it: %d for a number, %s for text, %% for a real percent sign." },
+    { "return type defaults to",
+      "The return type was not written (C)",
+      "A function was declared without saying what it returns, so old C silently assumed int. Modern compilers warn or refuse, because the assumption hides mistakes.",
+      "Write the return type in front of the function name: int add(...) — or void if it returns nothing." },
+    { "may fall through",
+      "A switch case falls into the next one (warning)",
+      "This case in a switch has no break at its end, so when it finishes, the program continues straight into the NEXT case. Sometimes that is wanted — but very often it is a forgotten break.",
+      "Add break; at the end of the case if the next case should not also run. If falling through is truly what you want, the warning can be ignored here." },
+    { "subscript has type",
+      "The array index is a char (warning)",
+      "The value inside [ ] is a char. That works (a char is a small number), but it is a classic trap: '2' the character is not the number 2, and negative chars can index outside the array.",
+      "Use a normal int as the index. If the char came from input, convert it first: index = ch - '0' for a digit character." },
+    { "will always evaluate",
+      "That address check is always true (warning)",
+      "The code tests the address of something (like &x or an array name) as if it could be false/empty. An address of a real variable is never zero, so the test always passes and hides the check you meant to write.",
+      "Test the VALUE instead of the address: if (x != 0) — or, for a pointer you received, test the pointer itself: if (p != NULL)." },
+    { "will return size of",
+      "sizeof of a pointer, not of the array (warning)",
+      "sizeof was used on an array that arrived as a function parameter. A parameter is really just a pointer, so sizeof gives the pointer's size (8 or 4), not the array's real length.",
+      "Pass the length as an extra parameter, or use the array in the same function where it was created — sizeof only knows the true size there." },
+    { "may change value|may alter its value",
+      "The value may change when its type changes (warning)",
+      "A value is being squeezed into another type (for example int into char, or double into int) and it may not survive unchanged: big numbers can wrap around or lose their fraction.",
+      "If the change is intended, say so clearly with a cast: (char)value. Otherwise give the variable the bigger/safer type so nothing is lost." },
+    { "overflow in conversion",
+      "The number is too big for the new type (warning)",
+      "A fixed number was converted into a type that cannot hold it — for example 300 into a char (which holds at most 255). The stored value wraps around and becomes something else entirely.",
+      "Use a type that fits the value (int instead of char), or choose a value inside the target type's range." },
+    { "implicitly truncated",
+      "A big number was cut down to fit (warning)",
+      "A large constant was stored into a smaller unsigned type, so its top part was silently cut off. The variable does not hold the number you wrote.",
+      "Use a bigger type for the variable, or a smaller value that really fits." },
+    { "narrowing conversion",
+      "A value is squeezed into a smaller type",
+      "Inside { } starting values, C++ protects you: a value that might not fit into the smaller type is an error, not a silent cut. For example char c = {300}; can never hold 300.",
+      "Give the variable a type that fits (int), or put a value inside the smaller type's range." },
+    { "'return' with a value",
+      "A void function tries to return a value",
+      "The function is declared void (returns nothing), but a return line hands back a value. The caller could never receive it, so this is an error.",
+      "Either change the function's return type from void to the type you return, or write plain return; with no value." },
+    { "mixed declarations",
+      "Declarations standing after code (old C style, warning)",
+      "In old C, all variables of a block had to be declared at its top. Here a declaration stands after normal statements. C++ and newer C allow it; strict old-C mode only warns.",
+      "Nothing is broken in C++. In strict C, move the declaration up to the top of the block, before the first statement." },
+    { "no type or storage class",
+      "A line outside any function looks like a declaration but has no type (C)",
+      "At the top level of a C file, every line must be a declaration with a type, a function, or a # line. This line has none — very often a stray statement, a missing int, or code accidentally written outside a function.",
+      "Move statements inside a function, and give declarations their type: int x; — also check the line above for a missing } that ended the function early." },
+    { "extra qualification",
+      "The class name is written where it does not belong",
+      "Inside the class itself, a member was written with the class name in front, like Point::Point::x. The extra ClassName:: is only used for definitions OUTSIDE the class body.",
+      "Remove the extra ClassName:: — inside the class just write the member's own name." },
+    { "missing braces around initializer",
+      "An inner { } is missing in the starting values (warning)",
+      "A 2D array or a struct inside an array got its starting values in one flat list, without the inner { } groups. The compiler guesses the grouping — and may guess differently from what you meant.",
+      "Write the inner groups: int a[2][3] = { {1,2,3}, {4,5,6} }; so every row/group has its own braces." },
+    { "missing initializer for member|missing initializer for field",
+      "A member was left without a starting value (warning)",
+      "A struct/class object was created with { } values, but one member got none. That member holds whatever garbage was in memory (for plain types).",
+      "Give every member a value in the { } list, or declare a default in the class: int x = 0;" },
+    { "will be initialized after",
+      "Members actually start in declaration order (warning)",
+      "The constructor's : init list names members in a different order than the class declares them. C++ always initializes in DECLARATION order, not list order — so a member can be built from another one that is not ready yet.",
+      "Reorder the init list to match the order the members are declared in the class." },
+    { "used uninitialized",
+      "A variable is used before it ever got a value (warning)",
+      "The compiler can see a path where this variable is read before anything was stored in it. Its value is whatever garbage happened to be in that memory — different every run.",
+      "Give the variable a starting value where you declare it: int x = 0; — then the warning and the randomness are gone." },
+    { "cast to pointer from integer|cast from pointer to integer|loses precision",
+      "A number and a memory address were cast into each other (warning)",
+      "An int was forced into a pointer, or a pointer into a smaller int. On 64-bit systems an address needs 64 bits; squeezing it into a 32-bit int cuts it and the pointer becomes invalid.",
+      "Keep addresses in pointer variables (or long long if you truly must store one). Normal beginner code never needs this cast — check if a * or & was forgotten instead." },
+    { "does not name a type",
+      "That name is not a known type",
+      "The compiler met a name where a type should stand (like vector<int> v;) and it does not know that type. Most often its #include is missing — vector needs <vector>, string needs <string> — or the std:: in front is missing.",
+      "Add the type's #include at the top and write std:: before standard types (std::vector), or keep 'using namespace std;' after your includes." },
+    { "base operand of",
+      "-> used on something that is not a pointer",
+      "The -> arrow works only on a POINTER to a struct/class. Here the thing before -> is a plain object or value, not a pointer.",
+      "Use the dot for a plain object: obj.member — and -> only for pointers: ptr->member. Or take the address first if a pointer was really meant." },
+    { "taking address of|address of rvalue",
+      "The address of a temporary value was taken",
+      "You asked for the address (&) of a value that exists only for a moment — like a calculation result or a temporary object. It is destroyed immediately, so its address would point at nothing.",
+      "Store the value in a named variable first, then take its address: int t = a + b; int* p = &t;" },
+    { "from NULL",
+      "NULL was passed where a normal value was needed",
+      "NULL (nothing) was given to a place that needs a real value, like an int parameter. NULL is really just 0 wearing a pointer costume — the function will treat it as the value 0, which is almost never intended.",
+      "Pass a real value instead. If a pointer was meant, the parameter's type is probably wrong — check the function's declaration." },
+    { "NULL used in arithmetic",
+      "NULL was used in a calculation (warning)",
+      "NULL appeared in arithmetic, like p = NULL + 1. NULL means 'no address'; doing maths with it produces a meaningless address.",
+      "Check the line: you probably meant to do the maths on a real pointer or number, not on NULL. Never calculate with NULL itself." },
+    { "shadows",
+      "A name hides another name (warning)",
+      "A variable inside a block has the same name as one outside it (or as a parameter). Inside the block, ONLY the inner one is visible — the outer one is hidden, which easily confuses both you and readers about which value a line changes.",
+      "Rename the inner variable. Two different things should have two different names." },
+    { "unused label",
+      "A label is written but never jumped to (warning)",
+      "A goto label exists, but no goto anywhere uses it. Harmless — leftover from an edit, most likely.",
+      "Remove the label, or add the goto that was meant to use it." },
+    { "empty body",
+      "An if/for has an empty body — often a stray ; (warning)",
+      "The statement after if/for/while is empty. The classic cause is a ; right after the condition: if (x > 0); — that semicolon IS the whole body, and the { } block after it runs always.",
+      "Remove the ; after the condition if the { } block below was meant to be the body. A truly empty body is almost never what you want." },
+    { "does not guard|misleadingly indented",
+      "The spaces make the code LOOK different from what it does (warning)",
+      "A line is indented as if it belonged to the if/for above it, but it is not inside it — it runs always. The indentation lies about the logic.",
+      "Put { } around the lines that belong to the if/for, and indent exactly the lines inside the braces." },
+    { "will never be executed",
+      "This code can never run (warning)",
+      "The compiler proved this statement can never be reached — for example a case in a switch whose value another case already handles, or code after an endless loop.",
+      "Check the logic above it. If the code was meant to run, the condition or case values above are probably wrong." },
+    { "unterminated comment",
+      "A /* comment was never closed",
+      "A /* comment starts but its closing */ never comes, so everything after it — real code included — is treated as comment and quietly disappears from the program.",
+      "Find the /* and add the closing */ where the comment was meant to end. If code below seems ignored by the compiler, this is the first place to look." },
+    { "multi-line comment",
+      "A comment runs into the next line (warning)",
+      "A // comment ends with a backslash \\, which secretly continues the comment onto the next line — so a real line of code may be commented out without looking like it.",
+      "Remove the backslash at the end of the // line, or turn the text into a /* ... */ block comment if several lines were meant." },
+    { "address of local|address of stack memory",
+      "The address of a local variable is sent out (warning)",
+      "A function returns (or stores for later) the address of its OWN local variable. When the function ends, that variable is destroyed — the address points at dead memory and using it is undefined behaviour.",
+      "Return the value itself, or store the data somewhere that outlives the function (a caller's variable via pointer parameter, or static/global storage)." },
+    { "above array bounds|below array bounds|partly outside array bounds",
+      "The index is outside the array — the compiler can see it (warning)",
+      "The code indexes the array with a position that is definitely outside it: an array of 5 has positions 0 to 4 only. Reading/writing outside reads garbage or corrupts other variables.",
+      "Keep indexes inside 0 .. size-1. In loops, the condition should be i < size, never i <= size." },
+    { "uninitialized const",
+      "A const was created without a value",
+      "A const variable MUST get its value at birth — it can never be assigned later, so creating it empty is an error.",
+      "Give the value in the same line: const int MAX = 100;" },
+    { "variable length array|variably modified",
+      "The array size must be a fixed number here",
+      "The array's size is a variable that only exists at run time (a VLA). Standard C++ forbids it, and at file scope no language allows it. GCC accepts it as an extension in functions, but portable code cannot.",
+      "Use a fixed size (const int N = 100;), or std::vector, which is made for run-time sizes." },
+    { "missing binary operator before token",
+      "Something is missing inside an #if condition",
+      "The #if line's condition is incomplete — an operator or a value is missing, like '#if X ==' with nothing after it, or a name that was never #defined being used in a way the preprocessor cannot evaluate.",
+      "Read the #if condition as a normal expression and complete it. Remember: undefined names in #if count as 0, and defined(X) tests if X exists." },
+    { "#error",
+      "Your own #error line stopped the build",
+      "This is not a compiler complaint — it is YOUR code (or a header's code) deliberately stopping the build with #error and showing this message. It usually guards a condition like a missing #define or wrong setting.",
+      "Read the message after #error: it tells you what to set or fix. The #error line itself is doing its job — fix the condition, not the messenger." },
+    { "redefined",
+      "A #define name is defined twice (warning)",
+      "The same macro name was #defined again with a different value. The new value wins from here on, which may not be what the first definition intended.",
+      "Keep one definition. If a header and your file both define it, #undef it first or remove yours." },
+    { "unterminated #if|without #if",
+      "The #if family lines do not match up",
+      "#if / #ifdef / #ifndef blocks must close with #endif, and #else / #endif need an #if above them. Here the pairing is broken — an #endif is missing, or one stands alone.",
+      "Count the pairs in the file: every #if needs exactly one #endif, with #else in between at most once. Add or remove the line the message points near." },
+    { "no newline at end of file",
+      "The file does not end with an empty line (warning)",
+      "The file's very last line has no Enter after it. Old rules require text files to end with a newline; some tools misread the last line without it.",
+      "Put the cursor at the very end of the file and press Enter once. Harmless, but now it is clean." },
+    { "only allowed in C99|only allowed in C11",
+      "Declaring the loop variable inside for() needs a newer C standard",
+      "Writing for (int i = 0; ...) with the declaration INSIDE the for is a C99-and-later feature. This file is being compiled as old C90, where the variable must be declared before the loop.",
+      "Declare the variable above the loop: int i; for (i = 0; ...) — or compile as C99/C11 (the Dev by Sufyan default for .c files already allows it)." },
+    { "parameter name omitted",
+      "A parameter in the declaration has no name (C)",
+      "In C, a function DEFINITION must name every parameter — a bare type like (int, int) is only allowed in a declaration. (C++ allows unnamed parameters; C does not.)",
+      "Give the parameter a name in the definition: int add(int a, int b) { ... }" },
+    { "follows non-static declaration|follows static declaration",
+      "The same function is declared two different ways",
+      "One place says the function is static (private to this file) and another place says it is not. Both declarations must agree.",
+      "Make the declarations match: either write static in both places, or in neither." },
+    { "incomplete element type",
+      "An array of an unfinished type",
+      "An array was declared whose member type is only promised, not yet defined — like struct Node arr[10]; before struct Node itself is written. The compiler cannot know each member's size, so it cannot build the array.",
+      "Write the full struct/class definition ABOVE the array. A pointer to an unfinished type is fine; an array of it is not." },
+    { "dereferencing 'void",
+      "A void* must be given a real type before use (C)",
+      "A void* points at 'something' without saying what. Before you can use *p or p[i], the compiler must know the real type behind it.",
+      "Cast it to the real type first: int* q = (int*)p; then use *q. Or declare the pointer with its real type from the start." },
+    { "discards .* qualifier|discards qualifiers",
+      "A const promise is being broken (warning)",
+      "A const value (which promises 'I will not change') was handed to a place that may change it — a function taking char* getting a const char*, or a const variable assigned into a plain one. The promise would be broken silently.",
+      "Make the receiving side const as well (const char* parameter), or — only if you are SURE it is safe — cast away the const deliberately. Never break the promise by accident." },
+    { "shift count|shift exponent",
+      "Shifting by too many bits (warning)",
+      "A << or >> shift asks to move bits by more places than the type has bits (or by a negative amount). The result of such a shift is undefined — different CPUs answer differently.",
+      "Keep the shift count between 0 and (bits - 1): for an int, 0 to 31. Check the variable that holds the count." },
+    { "too many decimal points|exponent has no digits",
+      "The number is written wrongly",
+      "A number contains two decimal points (like 3.14.15) or an unfinished exponent (like 1e). The compiler cannot read it as one number.",
+      "Write the number in one piece: one decimal point, and digits after e if you use it: 3.1415, 1.5e3." },
+    { "invalid suffix",
+      "Extra letters stuck to a number",
+      "Letters were typed directly after a number where only known endings fit (like 10f in C, or 123abc). The compiler does not know the ending you used.",
+      "Remove the extra letters, or use a real ending: 10 (plain), 10L (long), 10.0f (float — the dot matters), 10u (unsigned)." },
+    { "unknown escape sequence",
+      "An unknown backslash letter inside the text (warning)",
+      "Inside \"...\" text, a backslash starts a special code: \\n newline, \\t tab, \\\\ a real backslash. Here an unknown code like \\d was used, so it prints as just the letter — probably not what you wanted.",
+      "Use a known code, or write \\\\ when you really want a backslash in the output, like in a file path: \"C:\\\\folder\"." },
+    { "character constant too long",
+      "Too many characters between single quotes (C form)",
+      "Single quotes hold exactly ONE character in C: 'a'. What you wrote has more — the compiler squeezes it into one number in an implementation-defined way.",
+      "For one character use 'a'; for text use double quotes: \"abc\"." },
+    { "empty character constant",
+      "Nothing between the single quotes",
+      "'' with nothing inside is not a character at all. The compiler has nothing to store.",
+      "Put the one character you meant: ' ' (a space is a character too) or '\\0' for the zero/end character." },
+    { "stray '",
+      "A stray character that does not belong in code",
+      "A character appeared in the program that is not part of C/C++ at all — shown as its number code like \\302. These usually sneak in when code is copied from a web page or document (invisible characters, smart quotes), or from a stray keypress.",
+      "Delete the character at the spot the message names and retype that line cleanly with the keyboard." },
+    { "not a structure or union",
+      "Dot (.) used on something that is not a struct (C)",
+      "member access with . was used on a value that is not a struct/union — like a plain int or a pointer. Only structs have members to reach with a dot.",
+      "Check the variable's type. For a struct VALUE use obj.member; for a POINTER to struct use ptr->member; plain numbers have no members at all." },
+    { "called object",
+      "That name is not a function (C)",
+      "Something was called with ( ) as if it were a function, but it is a variable or another kind of thing. Only functions and function pointers can be called.",
+      "Check the name: is the function spelled right, and is this variable accidentally hiding the function's name? Rename one of them if they clash." },
+    { "declared void",
+      "A variable was declared as void",
+      "void means 'nothing' — it can be a function's return type, but a variable cannot BE nothing, so declaring one is an error.",
+      "Give the variable a real type (int, char, ...) — or, if you meant an anything-pointer, write void* (with the star)." },
+    { "storage size of",
+      "The size of this type is unknown here",
+      "A variable of a type was created whose full definition the compiler has not seen — only its name was promised earlier. Without the definition it does not know how much memory the variable needs.",
+      "Make sure the struct/class is fully defined (usually via its #include) ABOVE the place where the variable is created." },
+    { "duplicate .* declaration specifier|duplicate 'const'|duplicate 'static'",
+      "The same word is written twice in a declaration",
+      "A declaration repeats a word like const const or static static. It changes nothing, but it is not allowed.",
+      "Remove the repeated word so each specifier stands once." },
+    { "no declaration matches",
+      "The function definition matches no earlier declaration",
+      "A member function was defined outside its class (Class::name), but the class has no declaration that matches it exactly — the name, parameters, or const-ness differ somewhere.",
+      "Compare the definition with the declaration inside the class letter by letter: same name, same parameter types, same const at the end." },
+    { "invalid use of 'this'|use of 'this' in non-member",
+      "'this' used outside a member function",
+      "'this' (the current object) exists only inside a class's member functions. In a plain function or in main there is no 'this' object.",
+      "Pass the object as a parameter instead, or move the code into a member function of the class." },
     { "ISO C\\+\\+ forbids",
       "Old-style code the compiler is strict about",
       "This way of writing was allowed in old C/C++, and the modern standard forbids it. The message itself names the exact thing (converting text to char*, a variable-size array, an old-style declaration...). GCC often still compiles it with just this warning, but stricter compilers may refuse.",
@@ -534,13 +966,496 @@ const ErrorExplanation *explainError(const QString &description)
     return nullptr;
 }
 
+// ---------------------------------------------------------------------------
+// v1.5.1 — "Fix Lagao": deterministic one-click fixes.
+//
+// The fix rules are DATA: each rule names a dictionary entry (by its
+// title) and a fix KIND with an optional parameter. dbsComputeIssueFix()
+// turns (issue, entry, current file text) into a DbsFixAction only when
+// the fix is unambiguous for that exact message + line; otherwise no
+// fix is offered and the explanation stands alone. Applying goes
+// through the editor (replaceLine / setSelText), so Ctrl+Z undoes a
+// fix like any other edit.
+// ---------------------------------------------------------------------------
+
+struct ErrorFixRule {
+    const char *title; // dictionary entry title this rule belongs to
+    const char *kind;  // semicolon | closeBracket | colon | didYouMean |
+                       // undeclared | include | printParens
+    const char *param; // "include" only: the header, e.g. "<iostream>"
+};
+
+const ErrorFixRule ERROR_FIX_RULES[] = {
+    { "A name the compiler does not know", "undeclared", nullptr },
+    { "A function is used before the compiler knows it (C)", "undeclared", nullptr },
+    { "A library function is used without its #include", "undeclared", nullptr },
+    { "That name is not a known type", "undeclared", nullptr },
+    { "Python does not know this name (NameError)", "didYouMean", nullptr },
+    { "A semicolon (;) is missing", "semicolon", nullptr },
+    { "A closing bracket is missing", "closeBracket", nullptr },
+    { "A colon (:) is missing at the end of the line (Python)", "colon", nullptr },
+    { "print needs round brackets (Python)", "printParens", nullptr },
+    { "cout / cin needs <iostream>", "include", "<iostream>" },
+    { "printf / scanf needs <cstdio>", "include", "<cstdio>" },
+    { "String functions need <cstring>", "include", "<cstring>" },
+    { "These functions need <cstdlib>", "include", "<cstdlib>" },
+    { "Math functions need <cmath>", "include", "<cmath>" },
+    { "vector needs <vector>", "include", "<vector>" },
+    { "string needs <string>", "include", "<string>" },
+    { "memset needs <cstring>", "include", "<cstring>" },
+};
+
+const ErrorFixRule *fixRuleForEntry(const ErrorExplanation *entry)
+{
+    if (!entry)
+        return nullptr;
+    for (const ErrorFixRule &rule : ERROR_FIX_RULES)
+        if (qstrcmp(entry->title, rule.title) == 0)
+            return &rule;
+    return nullptr;
+}
+
+// A one-line description of what a fix kind does (dictionary browser).
+QString fixKindSummary(const ErrorFixRule *rule)
+{
+    if (!rule)
+        return QString();
+    const QString kind = QString::fromLatin1(rule->kind);
+    if (kind == "semicolon")
+        return QObject::tr("adds the missing ;");
+    if (kind == "closeBracket")
+        return QObject::tr("adds the missing closing bracket");
+    if (kind == "colon")
+        return QObject::tr("adds the missing :");
+    if (kind == "didYouMean")
+        return QObject::tr("uses the suggested name instead");
+    if (kind == "undeclared")
+        return QObject::tr("adds the missing #include, or uses the suggested name");
+    if (kind == "include")
+        return QObject::tr("adds %1 at the top").arg(
+                    QString::fromLatin1(rule->param));
+    if (kind == "printParens")
+        return QObject::tr("rewrites print as print(...)");
+    return QString();
+}
+
+// Library name -> the header that declares it. Used by the
+// "undeclared" fix kind.
+const QPair<const char *, const char *> DBS_INCLUDE_FOR_NAME[] = {
+    {"cout", "<iostream>"}, {"cin", "<iostream>"}, {"endl", "<iostream>"},
+    {"printf", "<cstdio>"}, {"scanf", "<cstdio>"}, {"sprintf", "<cstdio>"},
+    {"snprintf", "<cstdio>"}, {"fprintf", "<cstdio>"}, {"fopen", "<cstdio>"},
+    {"fclose", "<cstdio>"}, {"puts", "<cstdio>"}, {"putchar", "<cstdio>"},
+    {"getchar", "<cstdio>"}, {"gets", "<cstdio>"},
+    {"strlen", "<cstring>"}, {"strcpy", "<cstring>"}, {"strncpy", "<cstring>"},
+    {"strcmp", "<cstring>"}, {"strcat", "<cstring>"}, {"strstr", "<cstring>"},
+    {"strtok", "<cstring>"}, {"memcpy", "<cstring>"}, {"memset", "<cstring>"},
+    {"memmove", "<cstring>"},
+    {"malloc", "<cstdlib>"}, {"calloc", "<cstdlib>"}, {"realloc", "<cstdlib>"},
+    {"free", "<cstdlib>"}, {"rand", "<cstdlib>"}, {"srand", "<cstdlib>"},
+    {"exit", "<cstdlib>"}, {"atoi", "<cstdlib>"}, {"atof", "<cstdlib>"},
+    {"abs", "<cstdlib>"}, {"system", "<cstdlib>"},
+    {"sqrt", "<cmath>"}, {"pow", "<cmath>"}, {"sin", "<cmath>"},
+    {"cos", "<cmath>"}, {"tan", "<cmath>"}, {"fabs", "<cmath>"},
+    {"floor", "<cmath>"}, {"ceil", "<cmath>"}, {"log", "<cmath>"},
+    {"log10", "<cmath>"}, {"exp", "<cmath>"},
+    {"vector", "<vector>"}, {"string", "<string>"},
+    {"sort", "<algorithm>"}, {"max", "<algorithm>"}, {"min", "<algorithm>"},
+    {"swap", "<utility>"},
+};
+
+QString dbsHeaderForName(const QString &name)
+{
+    for (const auto &pair : DBS_INCLUDE_FOR_NAME)
+        if (name == QLatin1String(pair.first))
+            return QString::fromLatin1(pair.second);
+    return QString();
+}
+
+// The quote characters compilers use around names: ' and ` and the
+// Unicode pair (GCC's default). Built from code points.
+QString dbsQuoteClass()
+{
+    return QStringLiteral("['") + QChar(0x2018) + QChar(0x2019)
+            + QStringLiteral("`]");
+}
+
+bool dbsFileHasInclude(const QStringList &lines, const QString &header)
+{
+    const QString name = header.mid(1, header.size() - 2); // strip < >
+    static const QRegularExpression re(
+                QStringLiteral("#\\s*include\\s*[<\"]([^\">]+)[\">]"));
+    for (const QString &line : lines) {
+        QRegularExpressionMatch m = re.match(line);
+        if (m.hasMatch()) {
+            const QString found = m.captured(1);
+            if (found == name || found == "bits/stdc++.h")
+                return true;
+        }
+    }
+    return false;
+}
+
+int dbsIncludeInsertIndex(const QStringList &lines)
+{
+    int idx = 0;
+    const int limit = qMin(lines.size(), 80);
+    for (int i = 0; i < limit; ++i)
+        if (lines[i].trimmed().startsWith("#include"))
+            idx = i + 1;
+    return idx;
+}
+
+bool dbsMakeIncludeFix(const QStringList &lines, const QString &header,
+                       const QString &becauseName, DbsFixAction &out)
+{
+    if (header.isEmpty() || dbsFileHasInclude(lines, header))
+        return false;
+    out.valid = true;
+    out.insertLine = true;
+    out.line0 = dbsIncludeInsertIndex(lines);
+    out.newLineText = "#include " + header;
+    out.summary = becauseName.isEmpty()
+            ? QObject::tr("Add %1 near the top of the file — the name used "
+                          "here lives in that header.").arg(header)
+            : QObject::tr("Add %1 near the top of the file — '%2' lives in "
+                          "that header.").arg(header, becauseName);
+    return true;
+}
+
+QString dbsParseDidYouMean(const QString &description)
+{
+    QRegularExpression re("did you mean:?\\s*" + dbsQuoteClass()
+                          + "([\\w:]+)" + dbsQuoteClass(),
+                          QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatch m = re.match(description);
+    return m.hasMatch() ? m.captured(1) : QString();
+}
+
+QString dbsParseUndeclaredName(const QString &description)
+{
+    const QString qc = dbsQuoteClass();
+    const QString name = "([A-Za-z_]\\w*)";
+    const QStringList patterns = {
+        qc + name + qc + "\\s+was not declared",
+        qc + name + qc + "\\s+undeclared",
+        "undeclared identifier\\s*" + qc + name + qc,
+        "implicit declaration of function\\s*" + qc + name + qc,
+        "of built-in function\\s*" + qc + name + qc,
+        qc + name + qc + "\\s+in namespace\\s*" + qc + "\\w+" + qc
+                + "\\s+does not name a type",
+        qc + name + qc + "\\s+does not name a type",
+    };
+    for (const QString &pattern : patterns) {
+        QRegularExpressionMatch m = QRegularExpression(pattern).match(description);
+        if (m.hasMatch())
+            return m.captured(1);
+    }
+    return QString();
+}
+
+// Replace the occurrence of `wrong` on the issue's line that sits
+// closest to the reported column.
+bool dbsReplaceNameOnLine(const PCompileIssue &issue, const QStringList &lines,
+                          const QString &wrong, const QString &replacement,
+                          const QString &summary, DbsFixAction &out)
+{
+    if (wrong.isEmpty() || replacement.isEmpty() || wrong == replacement)
+        return false;
+    const int line0 = issue->line;
+    if (line0 < 0 || line0 >= lines.size())
+        return false;
+    const QString line = lines[line0];
+    QRegularExpression re("\\b" + QRegularExpression::escape(wrong) + "\\b");
+    QVector<int> starts;
+    QRegularExpressionMatchIterator it = re.globalMatch(line);
+    while (it.hasNext())
+        starts.append(it.next().capturedStart());
+    if (starts.isEmpty())
+        return false;
+    const int near = qMax(0, issue->column);
+    int best = starts.first();
+    for (int s : starts)
+        if (qAbs(s - near) < qAbs(best - near))
+            best = s;
+    out.valid = true;
+    out.insertLine = false;
+    out.line0 = line0;
+    out.expectedOldLine = line;
+    out.newLineText = line.left(best) + replacement
+            + line.mid(best + wrong.size());
+    out.summary = summary;
+    return true;
+}
+
+bool dbsComputeIssueFix(const PCompileIssue &issue,
+                        const ErrorExplanation *entry,
+                        const QStringList &lines, DbsFixAction &out)
+{
+    out = DbsFixAction();
+    const ErrorFixRule *rule = fixRuleForEntry(entry);
+    if (!rule || !issue)
+        return false;
+    const QString kind = QString::fromLatin1(rule->kind);
+    const QString desc = issue->description;
+    const int line0 = issue->line;
+    auto rtrim = [](const QString &s) {
+        int n = s.size();
+        while (n > 0 && s[n - 1].isSpace())
+            --n;
+        return s.left(n);
+    };
+
+    if (kind == "include") {
+        // The bare-name hints also fire on mere warnings about other
+        // things; only a real error earns the one-click include.
+        if (issue->type == CompileIssueType::Warning)
+            return false;
+        return dbsMakeIncludeFix(lines, QString::fromLatin1(rule->param),
+                                 QString(), out);
+    }
+
+    if (kind == "undeclared") {
+        const QString name = dbsParseUndeclaredName(desc);
+        const QString header = name.isEmpty() ? QString()
+                                              : dbsHeaderForName(name);
+        if (!header.isEmpty())
+            return dbsMakeIncludeFix(lines, header, name, out);
+        const QString suggestion = dbsParseDidYouMean(desc);
+        if (!suggestion.isEmpty() && !name.isEmpty())
+            return dbsReplaceNameOnLine(
+                        issue, lines, name, suggestion,
+                        QObject::tr("Replace '%1' with '%2' on line %3 — "
+                                    "that is the compiler's own suggestion.")
+                            .arg(name, suggestion).arg(line0 + 1),
+                        out);
+        return false;
+    }
+
+    if (kind == "didYouMean") {
+        const QString qc = dbsQuoteClass();
+        QRegularExpression nameRe("name\\s*" + qc + "([A-Za-z_]\\w*)" + qc
+                                  + "\\s+is not defined");
+        QRegularExpressionMatch m = nameRe.match(desc);
+        const QString wrong = m.hasMatch() ? m.captured(1) : QString();
+        const QString suggestion = dbsParseDidYouMean(desc);
+        if (wrong.isEmpty() || suggestion.isEmpty())
+            return false;
+        return dbsReplaceNameOnLine(
+                    issue, lines, wrong, suggestion,
+                    QObject::tr("Replace '%1' with '%2' on line %3 — that "
+                                "is Python's own suggestion.")
+                        .arg(wrong, suggestion).arg(line0 + 1),
+                    out);
+    }
+
+    if (kind == "colon") {
+        if (line0 < 0 || line0 >= lines.size())
+            return false;
+        const QString line = lines[line0];
+        const QString trimmed = line.trimmed();
+        if (trimmed.isEmpty() || trimmed.endsWith(':'))
+            return false;
+        static const QStringList starters = {
+            "if", "elif", "else", "for", "while", "def", "class", "try",
+            "except", "finally", "with"};
+        QString firstWord;
+        for (QChar c : trimmed) {
+            if (c.isLetter() || c == '_')
+                firstWord.append(c);
+            else
+                break;
+        }
+        if (!starters.contains(firstWord))
+            return false;
+        out.valid = true;
+        out.line0 = line0;
+        out.expectedOldLine = line;
+        out.newLineText = rtrim(line) + ":";
+        out.summary = QObject::tr("Add the missing : at the end of "
+                                  "line %1.").arg(line0 + 1);
+        return true;
+    }
+
+    if (kind == "printParens") {
+        if (line0 < 0 || line0 >= lines.size())
+            return false;
+        const QString line = lines[line0];
+        QRegularExpressionMatch m =
+                QRegularExpression("^([ \\t]*)print[ \\t]+(\\S.*)$").match(line);
+        if (!m.hasMatch())
+            return false;
+        const QString rest = rtrim(m.captured(2));
+        if (rest.startsWith('(') || rest.startsWith(">>"))
+            return false;
+        out.valid = true;
+        out.line0 = line0;
+        out.expectedOldLine = line;
+        out.newLineText = m.captured(1) + "print(" + rest + ")";
+        out.summary = QObject::tr("Put the printed values inside "
+                                  "print(...) on line %1.").arg(line0 + 1);
+        return true;
+    }
+
+    if (kind == "semicolon") {
+        if (desc.contains("after class definition")
+                || desc.contains("after struct definition")
+                || desc.contains("after enum definition")) {
+            // The } that closes the class/struct stands on the reported
+            // line or a few lines above it.
+            const int hi = qMin(line0, lines.size() - 1);
+            for (int t = hi; t >= qMax(0, line0 - 4); --t) {
+                const QString trimmed = lines[t].trimmed();
+                if (trimmed.endsWith('}') && !trimmed.endsWith("};")) {
+                    out.valid = true;
+                    out.line0 = t;
+                    out.expectedOldLine = lines[t];
+                    out.newLineText = rtrim(lines[t]) + ";";
+                    out.summary = QObject::tr(
+                                "Add the missing ; right after the } on "
+                                "line %1 — a class/struct definition must "
+                                "end with ;").arg(t + 1);
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (desc.contains("at end of input")) {
+            int t = lines.size() - 1;
+            while (t >= 0 && lines[t].trimmed().isEmpty())
+                --t;
+            if (t < 0)
+                return false;
+            const QString trimmed = lines[t].trimmed();
+            if (trimmed.endsWith(';') || trimmed.endsWith('{')
+                    || trimmed.endsWith('}') || trimmed.endsWith(':')
+                    || trimmed.startsWith('#'))
+                return false;
+            out.valid = true;
+            out.line0 = t;
+            out.expectedOldLine = lines[t];
+            out.newLineText = rtrim(lines[t]) + ";";
+            out.summary = QObject::tr("Add the missing ; at the end of "
+                                      "line %1.").arg(t + 1);
+            return true;
+        }
+        if (line0 < 0 || line0 >= lines.size())
+            return false;
+        const QString line = lines[line0];
+        int firstNonWs = 0;
+        while (firstNonWs < line.size() && line[firstNonWs].isSpace())
+            ++firstNonWs;
+        if (firstNonWs >= line.size())
+            return false;
+        const int col = issue->column;
+        if (col > firstNonWs && col <= line.size()) {
+            // The compiler points mid-line at the token before which
+            // the ';' belongs.
+            if (line[col - 1] == ';')
+                return false;
+            out.valid = true;
+            out.line0 = line0;
+            out.expectedOldLine = line;
+            out.newLineText = line.left(col) + ";" + line.mid(col);
+            out.summary = QObject::tr(
+                        "Add the missing ; on line %1, just before the "
+                        "word the compiler is pointing at.").arg(line0 + 1);
+            return true;
+        }
+        // The pointed-at word starts its line: the line ABOVE it is
+        // the one missing its ';'.
+        int t = line0 - 1;
+        while (t >= 0 && (lines[t].trimmed().isEmpty()
+                          || lines[t].trimmed().startsWith('#')))
+            --t;
+        if (t < 0)
+            return false;
+        const QString trimmed = lines[t].trimmed();
+        if (trimmed.endsWith(';') || trimmed.endsWith('{')
+                || trimmed.endsWith('}') || trimmed.endsWith(':')
+                || trimmed.endsWith('\\'))
+            return false;
+        out.valid = true;
+        out.line0 = t;
+        out.expectedOldLine = lines[t];
+        out.newLineText = rtrim(lines[t]) + ";";
+        out.summary = QObject::tr("Add the missing ; at the end of "
+                                  "line %1.").arg(t + 1);
+        return true;
+    }
+
+    if (kind == "closeBracket") {
+        const QString qc = dbsQuoteClass();
+        QRegularExpressionMatch m =
+                QRegularExpression("expected\\s*" + qc + "(.)" + qc).match(desc);
+        if (!m.hasMatch())
+            return false;
+        const QChar closer = m.captured(1).at(0);
+        if (closer != ')' && closer != ']' && closer != '}')
+            return false;
+        if (line0 < 0 || line0 >= lines.size())
+            return false;
+        if (desc.contains("at end of input")) {
+            if (closer == '}') {
+                // Offered only when exactly ONE { in the whole file is
+                // unclosed — the one unambiguous case.
+                int balance = 0;
+                for (const QString &l : lines)
+                    balance += l.count('{') - l.count('}');
+                if (balance != 1)
+                    return false;
+                out.valid = true;
+                out.insertLine = true;
+                out.line0 = lines.size();
+                out.newLineText = "}";
+                out.summary = QObject::tr(
+                            "Add the missing } as a new last line of the "
+                            "file — one { above is still open.");
+                return true;
+            }
+            const QChar opener = closer == ')' ? '(' : '[';
+            const QString line = lines[line0];
+            if (line.count(opener) - line.count(closer) != 1)
+                return false;
+            out.valid = true;
+            out.line0 = line0;
+            out.expectedOldLine = line;
+            out.newLineText = rtrim(line) + closer;
+            out.summary = QObject::tr("Add the missing %1 at the end of "
+                                      "line %2.").arg(closer).arg(line0 + 1);
+            return true;
+        }
+        QRegularExpressionMatch bm =
+                QRegularExpression("before\\s*" + qc + "(.)").match(desc);
+        if (!bm.hasMatch())
+            return false;
+        const QChar token = bm.captured(1).at(0);
+        const QString line = lines[line0];
+        const int col = issue->column;
+        if (col < 0 || col >= line.size() || line[col] != token)
+            return false;
+        out.valid = true;
+        out.line0 = line0;
+        out.expectedOldLine = line;
+        out.newLineText = line.left(col) + closer + line.mid(col);
+        out.summary = QObject::tr("Add the missing %1 on line %2, just "
+                                  "before '%3'.")
+                .arg(closer).arg(line0 + 1).arg(token);
+        return true;
+    }
+
+    return false;
+}
+
 } // namespace
 
 // ---------------------------------------------------------------------------
 // Part 2 — explanation dialog
 // ---------------------------------------------------------------------------
 
-void dbsShowIssueExplanation(QWidget *parent, const PCompileIssue &issue)
+void dbsShowIssueExplanation(QWidget *parent, const PCompileIssue &issue,
+                             const DbsFixAction &fix,
+                             const std::function<bool(bool)> &applyFix)
 {
     if (!issue)
         return;
@@ -580,16 +1495,77 @@ void dbsShowIssueExplanation(QWidget *parent, const PCompileIssue &issue)
     auto *fixHead = new QLabel(QObject::tr("How to fix it:"));
     fixHead->setStyleSheet("font-weight: bold; margin-top: 8px;");
     layout->addWidget(fixHead);
-    auto *fix = new QLabel(found ? QString::fromLatin1(found->fix)
+    auto *fixText = new QLabel(found ? QString::fromLatin1(found->fix)
                                  : QObject::tr("1) Always fix the FIRST error in the list first, then compile again — half the list often disappears. 2) Read the reported line AND the line above it; missing ; and } almost always hide one line earlier. 3) Compare the spelling of names letter by letter."));
-    fix->setWordWrap(true);
-    layout->addWidget(fix);
+    fixText->setWordWrap(true);
+    layout->addWidget(fixText);
+
+    // v1.5.1 Fix Lagao: when a deterministic fix was computed, show the
+    // exact line that will result BEFORE anything is applied. Nothing
+    // is edited until the user clicks one of the fix buttons below.
+    QLabel *fixStatus = nullptr;
+    if (fix.valid) {
+        auto *fixHead = new QLabel(QObject::tr("One-click fix (Fix Lagao):"));
+        fixHead->setStyleSheet("font-weight: bold; margin-top: 10px;");
+        layout->addWidget(fixHead);
+        auto *fixSummary = new QLabel(fix.summary);
+        fixSummary->setWordWrap(true);
+        layout->addWidget(fixSummary);
+        auto *preview = new QLabel;
+        preview->setStyleSheet("font-family: monospace;");
+        preview->setWordWrap(true);
+        if (fix.insertLine)
+            preview->setText(QObject::tr("New line %1:  %2")
+                             .arg(fix.line0 + 1).arg(fix.newLineText));
+        else
+            preview->setText(QObject::tr("Now:  %1\nWill become:  %2")
+                             .arg(fix.expectedOldLine, fix.newLineText));
+        layout->addWidget(preview);
+        fixStatus = new QLabel;
+        fixStatus->setWordWrap(true);
+        fixStatus->setStyleSheet("font-weight: bold; color: #2e7d32;");
+        layout->addWidget(fixStatus);
+    }
 
     layout->addStretch();
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
     QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::close);
     QObject::connect(buttons, &QDialogButtonBox::accepted, dialog, &QDialog::close);
+    if (fix.valid && applyFix) {
+        auto *fixBtn = new QPushButton(QObject::tr("Fix it for me"), dialog);
+        auto *recheckBtn = new QPushButton(QObject::tr("Fix && Recheck"), dialog);
+        buttons->addButton(fixBtn, QDialogButtonBox::ActionRole);
+        buttons->addButton(recheckBtn, QDialogButtonBox::ActionRole);
+        QObject::connect(fixBtn, &QPushButton::clicked, dialog,
+                         [applyFix, fixBtn, recheckBtn, fixStatus]() {
+            if (applyFix(false)) {
+                fixBtn->setEnabled(false);
+                recheckBtn->setEnabled(false);
+                fixStatus->setText(QObject::tr(
+                    "Fix applied ✓ — press F9 (Compile) to check. "
+                    "Ctrl+Z undoes the fix."));
+            } else {
+                fixStatus->setText(QObject::tr(
+                    "The fix could not be applied — the line has changed "
+                    "since the compile. Close this, compile again, and "
+                    "double-click the fresh error."));
+            }
+        });
+        QObject::connect(recheckBtn, &QPushButton::clicked, dialog,
+                         [applyFix, dialog, fixStatus]() {
+            if (applyFix(true)) {
+                dialog->close();
+            } else {
+                fixStatus->setText(QObject::tr(
+                    "The fix could not be applied — the line has changed "
+                    "since the compile. Close this, compile again, and "
+                    "double-click the fresh error."));
+            }
+        });
+    }
     layout->addWidget(buttons);
+    if (fix.valid)
+        dialog->resize(560, 480);
     dialog->show();
 }
 
@@ -598,8 +1574,272 @@ void MainWindow::dbsExplainIssueAt(const QModelIndex &index)
     if (!index.isValid())
         return;
     PCompileIssue issue = ui->tableIssues->issue(index);
-    if (issue)
-        dbsShowIssueExplanation(this, issue);
+    if (!issue)
+        return;
+    // v1.5.1: try to compute a one-click fix from the live editor text.
+    DbsFixAction fix;
+    const ErrorExplanation *entry = explainError(issue->description);
+    Editor *editor = mEditorManager->getOpenedEditor(issue->filename);
+    if (!editor && !issue->filename.isEmpty()) {
+        openFile(issue->filename);
+        editor = mEditorManager->getOpenedEditor(issue->filename);
+    }
+    if (entry && editor && !editor->readOnly())
+        dbsComputeIssueFix(issue, entry, editor->content(), fix);
+    dbsShowIssueExplanation(this, issue, fix,
+                            [this, issue, fix](bool recheck) {
+        if (!dbsApplyFixToEditor(issue, fix))
+            return false;
+        if (recheck)
+            dbsStartRecheck(issue);
+        else
+            statusBar()->showMessage(
+                        tr("Fix applied ✓ — press F9 (Compile) to check. "
+                           "(Ctrl+Z undoes the fix.)"), 10000);
+        return true;
+    });
+}
+
+bool MainWindow::dbsApplyFixToEditor(const PCompileIssue &issue,
+                                     const DbsFixAction &fix)
+{
+    if (!issue || !fix.valid)
+        return false;
+    Editor *editor = mEditorManager->getOpenedEditor(issue->filename);
+    if (!editor && !issue->filename.isEmpty()) {
+        openFile(issue->filename);
+        editor = mEditorManager->getOpenedEditor(issue->filename);
+    }
+    if (!editor || editor->readOnly())
+        return false;
+    if (fix.insertLine) {
+        if (fix.line0 < 0 || fix.line0 > editor->lineCount())
+            return false;
+        if (fix.line0 < editor->lineCount()) {
+            editor->setCaretXY(QSynedit::CharPos{0, fix.line0});
+            editor->setSelText(fix.newLineText + "\n");
+        } else {
+            const int last = editor->lineCount() - 1;
+            editor->setCaretXY(QSynedit::CharPos{
+                                   editor->lineText(last).length(), last});
+            editor->setSelText("\n" + fix.newLineText);
+        }
+    } else {
+        if (fix.line0 < 0 || fix.line0 >= editor->lineCount())
+            return false;
+        // The line must still be exactly the one the fix was computed
+        // from — otherwise the code has moved on and guessing would
+        // be dangerous.
+        if (editor->lineText(fix.line0) != fix.expectedOldLine)
+            return false;
+        editor->replaceLine(fix.line0, fix.newLineText);
+    }
+    mEditorManager->activeEditor(editor, true);
+    editor->setFocus();
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// v1.5.1 — Fix & Recheck: after a fix is applied, recompile the same
+// file and judge honestly from the fresh Issues list whether THAT
+// issue (same file, same message) is still reported. An inserted
+// #include shifts every line number, so the line is not compared.
+// ---------------------------------------------------------------------------
+
+void MainWindow::dbsStartRecheck(const PCompileIssue &issue)
+{
+    if (!ui->actionCompile->isEnabled()) {
+        statusBar()->showMessage(
+                    tr("Fix applied ✓ — but the recheck could not run: "
+                       "Compile is not available for this file. Press F9 "
+                       "(Compile) yourself."), 12000);
+        return;
+    }
+    mDbsRecheckPending = true;
+    const int id = ++mDbsRecheckId;
+    mDbsRecheckFilename = QFileInfo(issue->filename).absoluteFilePath();
+    mDbsRecheckDescription = issue->description;
+    statusBar()->showMessage(
+                tr("Fix applied ✓ — recompiling to check whether that "
+                   "error is gone…"));
+    QTimer::singleShot(60000, this, [this, id]() {
+        if (mDbsRecheckPending && mDbsRecheckId == id) {
+            mDbsRecheckPending = false;
+            statusBar()->showMessage(
+                        tr("Fix & Recheck: the compile did not report "
+                           "back, so that error could not be rechecked. "
+                           "Press F9 (Compile) yourself."), 12000);
+        }
+    });
+    on_actionCompile_triggered();
+}
+
+void MainWindow::dbsOnRecheckCompileFinished(const QString &filename,
+                                             bool isCheckSyntax)
+{
+    if (!mDbsRecheckPending || isCheckSyntax)
+        return;
+    mDbsRecheckPending = false;
+    if (QFileInfo(filename).absoluteFilePath() != mDbsRecheckFilename) {
+        statusBar()->showMessage(
+                    tr("Fix & Recheck: a different file was compiled "
+                       "(%1), so that error could not be rechecked.")
+                    .arg(QFileInfo(filename).fileName()), 12000);
+        return;
+    }
+    // Judge on the next event-loop turn, when the fresh issues have
+    // all landed in the table.
+    QTimer::singleShot(0, this, [this]() {
+        bool stillThere = false;
+        for (const PCompileIssue &it : ui->tableIssues->issues()) {
+            if (it && QFileInfo(it->filename).absoluteFilePath()
+                        == mDbsRecheckFilename
+                    && it->description == mDbsRecheckDescription) {
+                stillThere = true;
+                break;
+            }
+        }
+        statusBar()->showMessage(stillThere
+                    ? tr("Fix & Recheck: that error is STILL reported "
+                         "after recompiling — it needs another look.")
+                    : tr("Fix & Recheck: that error is GONE ✓ — the "
+                         "recompile does not report it any more."),
+                    15000);
+    });
+}
+
+// ---------------------------------------------------------------------------
+// v1.5.1 — the searchable error dictionary window. Fully offline; it
+// reads the same ERROR_DICTIONARY the explanation popup uses, so it
+// can be browsed without compiling anything.
+// ---------------------------------------------------------------------------
+
+void dbsShowErrorDictionary(QWidget *parent)
+{
+    auto *dialog = new QDialog(parent);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QObject::tr(
+                "Error Dictionary — simple words for compiler messages"));
+    dialog->resize(760, 540);
+    auto *layout = new QVBoxLayout(dialog);
+
+    auto *search = new QLineEdit(dialog);
+    search->setPlaceholderText(QObject::tr(
+                "Type part of an error message (or paste one!), or a word "
+                "like semicolon, unpack, NULL…"));
+    layout->addWidget(search);
+
+    auto *countLabel = new QLabel(dialog);
+    layout->addWidget(countLabel);
+
+    auto *list = new QListWidget(dialog);
+    list->setSelectionMode(QAbstractItemView::SingleSelection);
+    layout->addWidget(list, 1);
+
+    auto *detailTitle = new QLabel(dialog);
+    detailTitle->setStyleSheet("font-weight: bold; font-size: 12pt;");
+    detailTitle->setWordWrap(true);
+    layout->addWidget(detailTitle);
+    auto *detail = new QLabel(dialog);
+    detail->setWordWrap(true);
+    detail->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    layout->addWidget(detail);
+
+    struct DictRow {
+        const ErrorExplanation *entry;
+        const ErrorFixRule *rule;
+    };
+    QVector<DictRow> rows;
+    for (const ErrorExplanation &entry : ERROR_DICTIONARY)
+        rows.append({&entry, fixRuleForEntry(&entry)});
+
+    auto refresh = [search, list, countLabel, rows]() {
+        const QString query = search->text().trimmed();
+        const QStringList terms = query.toLower().split(
+                    QRegularExpression("\\s+"), Qt::SkipEmptyParts);
+        list->clear();
+        // If the typed text IS a compiler message, the entry whose
+        // pattern matches it is almost surely the one wanted — those
+        // float to the top with a star.
+        QVector<int> starred;
+        QVector<int> plain;
+        for (int i = 0; i < rows.size(); ++i) {
+            const DictRow &row = rows[i];
+            bool regexHit = false;
+            if (!query.isEmpty()) {
+                QRegularExpression re(
+                            QString::fromLatin1(row.entry->pattern),
+                            QRegularExpression::CaseInsensitiveOption);
+                regexHit = re.isValid() && re.match(query).hasMatch();
+            }
+            bool textHit = terms.isEmpty();
+            if (!textHit) {
+                const QString hay = (QString::fromLatin1(row.entry->title)
+                        + ' ' + QString::fromLatin1(row.entry->what) + ' '
+                        + QString::fromLatin1(row.entry->fix) + ' '
+                        + QString::fromLatin1(row.entry->pattern)).toLower();
+                textHit = true;
+                for (const QString &t : terms)
+                    if (!hay.contains(t)) {
+                        textHit = false;
+                        break;
+                    }
+            }
+            if (regexHit)
+                starred.append(i);
+            else if (textHit)
+                plain.append(i);
+        }
+        auto addItem = [list](int idx, const DictRow &row, bool star) {
+            QString text = QString::fromLatin1(row.entry->title);
+            if (row.rule)
+                text += QObject::tr("  ⚡ one-click fix");
+            if (star)
+                text = QStringLiteral("★ ") + text;
+            auto *item = new QListWidgetItem(text, list);
+            item->setData(Qt::UserRole, idx);
+        };
+        for (int i : starred)
+            addItem(i, rows[i], true);
+        for (int i : plain)
+            addItem(i, rows[i], false);
+        countLabel->setText(QObject::tr(
+                    "Showing %1 of %2 entries. Tip: double-click any error "
+                    "in the Issues list to open its own page.")
+                    .arg(list->count()).arg(rows.size()));
+        if (list->count() > 0)
+            list->setCurrentRow(0);
+    };
+    QObject::connect(search, &QLineEdit::textChanged, dialog,
+                     [refresh]() { refresh(); });
+    QObject::connect(list, &QListWidget::currentItemChanged, dialog,
+                     [detailTitle, detail, rows](QListWidgetItem *item) {
+        if (!item) {
+            detailTitle->clear();
+            detail->clear();
+            return;
+        }
+        const int idx = item->data(Qt::UserRole).toInt();
+        if (idx < 0 || idx >= rows.size())
+            return;
+        const DictRow &row = rows[idx];
+        detailTitle->setText(QString::fromLatin1(row.entry->title));
+        QString text = QString::fromLatin1(row.entry->what)
+                + "\n\n" + QObject::tr("How to fix: ")
+                + QString::fromLatin1(row.entry->fix);
+        if (row.rule)
+            text += "\n\n" + QObject::tr("⚡ One-click fix available when "
+                        "this error appears: %1.")
+                        .arg(fixKindSummary(row.rule));
+        else
+            text += "\n\n" + QObject::tr(
+                        "No one-click fix for this one — the right repair "
+                        "needs your judgement.");
+        detail->setText(text);
+    });
+    refresh();
+    dialog->show();
+    search->setFocus();
 }
 
 // ---------------------------------------------------------------------------
@@ -652,6 +1892,16 @@ void MainWindow::setupDbsFeatures()
     QAction *updateAction = ui->menuHelp->addAction(tr("Check for Updates"));
     connect(updateAction, &QAction::triggered, this,
             [this]() { dbsCheckForUpdates(true); });
+    // v1.5.1: the searchable error dictionary (same data as the
+    // double-click explanation; no compile needed to browse it).
+    QAction *dictAction = ui->menuHelp->addAction(tr("Error Dictionary..."));
+    connect(dictAction, &QAction::triggered, this,
+            [this]() { dbsShowErrorDictionary(this); });
+    // v1.5.1: Fix & Recheck listens to the same compile-finished
+    // signal as the normal flow; it stays silent unless a recheck is
+    // pending.
+    connect(mCompilerManager, &CompilerManager::compileFinished,
+            this, &MainWindow::dbsOnRecheckCompileFinished);
 
     // Part 1: the 30-second quick-save + drafts timer. The upstream
     // minute-based auto-save in the settings stays untouched; this one
@@ -699,7 +1949,49 @@ void MainWindow::setupDbsFeatures()
             issue->column = 5;
             issue->description = "'total' was not declared in this scope";
             issue->type = CompileIssueType::Error;
-            dbsShowIssueExplanation(this, issue);
+            dbsShowIssueExplanation(this, issue, DbsFixAction(), nullptr);
+        });
+    }
+    if (!qEnvironmentVariable("DBS_TEST_FIX").isEmpty()) {
+        // v1.5.1: open a file whose only fault is a missing ';' before
+        // 'return', then show its explanation WITH the computed fix.
+        QTimer::singleShot(2500, this, [this]() {
+            QString path = QDir::temp().filePath("dbs-test-fix.cpp");
+            QFile f(path);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                f.write("#include <iostream>\nusing namespace std;\n"
+                        "int main() {\n    cout << \"Hello\" << endl\n"
+                        "    return 0;\n}\n");
+                f.close();
+            }
+            openFile(path);
+            QTimer::singleShot(900, this, [this, path]() {
+                auto issue = std::make_shared<CompileIssue>();
+                issue->filename = path;
+                issue->line = 4;    // the 'return 0;' line (0-based)
+                issue->column = 4;  // 'return' starts at ch 4
+                issue->description = "error: expected ';' before 'return'";
+                issue->type = CompileIssueType::Error;
+                DbsFixAction fix;
+                const ErrorExplanation *entry =
+                        explainError(issue->description);
+                Editor *editor = mEditorManager->getOpenedEditor(path);
+                if (entry && editor)
+                    dbsComputeIssueFix(issue, entry, editor->content(), fix);
+                dbsShowIssueExplanation(this, issue, fix,
+                                        [this, issue, fix](bool recheck) {
+                    if (!dbsApplyFixToEditor(issue, fix))
+                        return false;
+                    if (recheck)
+                        dbsStartRecheck(issue);
+                    return true;
+                });
+            });
+        });
+    }
+    if (!qEnvironmentVariable("DBS_TEST_DICT").isEmpty()) {
+        QTimer::singleShot(2500, this, [this]() {
+            dbsShowErrorDictionary(this);
         });
     }
     if (!qEnvironmentVariable("DBS_TEST_RUNALL").isEmpty()) {

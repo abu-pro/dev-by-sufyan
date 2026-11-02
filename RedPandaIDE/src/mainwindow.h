@@ -64,6 +64,7 @@ enum class RunType {
 
 
 class EditorManager;
+struct DbsFixAction;
 class QDockWidget;
 class RoomsPanel;
 class RoomChatWindow;
@@ -373,6 +374,12 @@ private:
     void dbsSaveTick();
     void dbsCheckRecovery();
     void dbsExplainIssueAt(const QModelIndex &index);
+    // v1.5.1 Fix Lagao + Fix & Recheck.
+    bool dbsApplyFixToEditor(const PCompileIssue &issue,
+                             const DbsFixAction &fix);
+    void dbsStartRecheck(const PCompileIssue &issue);
+    void dbsOnRecheckCompileFinished(const QString &filename,
+                                     bool isCheckSyntax);
     void dbsSaveCodePhoto();
     void dbsSaveCodePhotoTo(Editor *editor, int scale, const QString &path);
     void dbsShowFlowchart();
@@ -392,6 +399,7 @@ private:
     void showWelcomePage();
     void refreshHomePage();
     void onWelcomeNewDocument();
+    void onWelcomeTemplates();
     void onWelcomeRecentFile(const QString &filename);
     void selectRoomsTab(int index);
     void buildContextMenus();
@@ -1029,6 +1037,12 @@ private:
     QAction *mSideBySideAction = nullptr;
     QString mSideBySideMemberId;
     bool mUpdateNoticeShown = false;
+    // v1.5.1 Fix & Recheck state (armed only between a fix-apply and
+    // the compile-finished verdict).
+    bool mDbsRecheckPending = false;
+    int mDbsRecheckId = 0;
+    QString mDbsRecheckFilename;
+    QString mDbsRecheckDescription;
     QLabel *mFileInfoStatus;
     LabelWithMenu *mFileEncodingStatus;
     QLabel *mFileModeStatus;

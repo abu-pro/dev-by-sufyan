@@ -48,6 +48,7 @@
 
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "rooms/dbsfeatures.h"
 #include "editormanager.h"
 #include "editor.h"
 #include "systemconsts.h"
@@ -4082,6 +4083,10 @@ void MainWindow::onTableIssuesContextMenu(const QPoint &pos)
                 [this, issueIndex]() { dbsExplainIssueAt(issueIndex); });
         menu.addSeparator();
     }
+    // Dev by Sufyan v1.5.1: browse/search the whole error dictionary.
+    QAction *dictAction = menu.addAction(tr("Error Dictionary..."));
+    connect(dictAction, &QAction::triggered, this,
+            [this]() { dbsShowErrorDictionary(this); });
     menu.addAction(mTableIssuesCopyAction);
     menu.addAction(mTableIssuesCopyAllAction);
     menu.addSeparator();

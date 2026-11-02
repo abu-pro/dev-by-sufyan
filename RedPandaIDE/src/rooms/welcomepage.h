@@ -74,6 +74,7 @@ public:
 signals:
     void continueRequested();
     void newDocumentRequested();
+    void templatesRequested();
     void openDocumentRequested();
     void newProjectRequested();
     void roomsRequested();
