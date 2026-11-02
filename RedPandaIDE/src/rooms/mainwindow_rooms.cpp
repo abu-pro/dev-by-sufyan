@@ -51,6 +51,13 @@
 #include "roomchatwindow.h"
 #include "roomspanel.h"
 #include "welcomepage.h"
+#include "dbstheme.h"
+#include "dbsfx.h"
+
+#include <QPainter>
+#include <QPixmap>
+#include <QTabBar>
+#include <QVariantAnimation>
 
 namespace {
 
@@ -171,7 +178,7 @@ void MainWindow::setupRooms()
     roomsMenu->addSeparator();
     QAction *createAction = roomsMenu->addAction(tr("Create Room"));
     connect(createAction, &QAction::triggered, this, [this]() {
-        mRoomsDock->show();
+        showRoomsDockAnimated();
         mRoomsDock->raise();
         if (mRoomClient && mRoomClient->isInRoom())
             mRoomsPanel->selectTab(0);
@@ -180,7 +187,7 @@ void MainWindow::setupRooms()
     });
     QAction *joinAction = roomsMenu->addAction(tr("Join Room"));
     connect(joinAction, &QAction::triggered, this, [this]() {
-        mRoomsDock->show();
+        showRoomsDockAnimated();
         mRoomsDock->raise();
         if (!(mRoomClient && mRoomClient->isInRoom()))
             mRoomsPanel->focusJoinField();
@@ -287,6 +294,8 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomDisconnected);
 
     setupWelcomePage();
+    // v1.6.0: theme packs, full-screen Home, backdrop, effects.
+    setupDbsThemes();
 }
 
 // ---------------------------------------------------------------------------
@@ -306,7 +315,7 @@ void MainWindow::updateChatUnreadBadge()
 void MainWindow::showRoomChatWindow()
 {
     if (!mRoomClient || !mRoomClient->isInRoom()) {
-        mRoomsDock->show();
+        showRoomsDockAnimated();
         mRoomsDock->raise();
         mRoomsPanel->showMessage(
                     tr("Join a room first — Messages is the room chat."));
@@ -315,13 +324,14 @@ void MainWindow::showRoomChatWindow()
     mChatUnread = 0;
     updateChatUnreadBadge();
     mRoomChatWindow->show();
+    dbsFadeInWindow(mRoomChatWindow);  // Part 7 fade-in
     mRoomChatWindow->raise();
     mRoomChatWindow->activateWindow();
 }
 
 void MainWindow::selectRoomsTab(int index)
 {
-    mRoomsDock->show();
+    showRoomsDockAnimated();
     mRoomsDock->raise();
     mRoomsPanel->selectTab(index);
 }
@@ -448,7 +458,7 @@ void MainWindow::setupWelcomePage()
     // permanent "Home" tab of the editor area (see ensureHomeTab()).
     // The approved full-bleed anime design is unchanged.
     mWelcomePage = new WelcomePage(this);
-    mWelcomePage->setVersionText(tr("Version 1.5.1"));
+    mWelcomePage->setVersionText(tr("Version 1.6.0"));
     auto shortcutOf = [](QAction *action) {
         return action ? action->shortcut().toString() : QString();
     };
@@ -481,7 +491,7 @@ void MainWindow::setupWelcomePage()
         ui->actionNew_Project->trigger();
     });
     connect(mWelcomePage, &WelcomePage::roomsRequested, this, [this]() {
-        mRoomsDock->show();
+        showRoomsDockAnimated();
         mRoomsDock->raise();
     });
     connect(mWelcomePage, &WelcomePage::themeRequested, this, [this]() {
@@ -1656,4 +1666,404 @@ void MainWindow::onRoomDisconnected()
     // period) — transient drops are handled by the resume machinery.
     endRoom(tr("Disconnected from the room server — could not reconnect, "
                "so the room was closed."));
+}
+
+// ---------------------------------------------------------------------------
+// v1.6.0: theme packs, full-screen Home, panel backdrop, special effects
+// ---------------------------------------------------------------------------
+
+void MainWindow::setupDbsThemes()
+{
+    // Themes menu (same compact styling as the Rooms menu).
+    QMenu *themesMenu = new QMenu(tr("Themes"), this);
+    themesMenu->setStyleSheet(
+        "QMenu { font-size: 10.5pt; }"
+        "QMenu::item { padding: 2px 24px 2px 12px; }"
+        "QMenu::item:selected { background: #2f6fb2; color: #ffffff; }"
+        "QMenu::separator { height: 3px; margin: 1px 8px; }"
+        "QMenu::indicator { width: 14px; height: 14px;"
+        " margin-left: 6px; }");
+    auto addPackAction = [this, themesMenu](const QString &label,
+                                            const QString &id,
+                                            const QIcon &icon) {
+        QAction *action = themesMenu->addAction(label);
+        action->setCheckable(true);
+        action->setData(id);
+        if (!icon.isNull())
+            action->setIcon(icon);
+        connect(action, &QAction::triggered, this,
+                [this, themesMenu, action, id]() {
+            // Radio behaviour without an action group: pack actions
+            // are the checkable ones carrying a data() id.
+            for (QAction *other : themesMenu->actions())
+                if (other != action && other->isCheckable()
+                        && other->data().isValid())
+                    other->setChecked(false);
+            action->setChecked(true);
+            // Part 7: theme switches fade through the veil. The
+            // midpoint applies the LATEST requested pack, so a
+            // second click during the fade is never overridden by
+            // the first click's captured choice.
+            if (mEffectsOverlay && dbsAnimationsEnabled()
+                    && id != mAppliedPackId) {
+                mVeilPackId = id;
+                mVeilPackSet = true;
+                mEffectsOverlay->fadeThrough([this]() {
+                    if (mVeilPackSet) {
+                        const QString pid = mVeilPackId;
+                        mVeilPackSet = false;
+                        if (pid != mAppliedPackId)
+                            applyDbsThemePack(pid, true);
+                    }
+                });
+            } else {
+                applyDbsThemePack(id, true);
+            }
+        });
+        return action;
+    };
+    addPackAction(tr("Classic (no pack)"), QString(), QIcon());
+    for (const DbsThemePack &pack : dbsThemePacks())
+        addPackAction(pack.name, pack.id,
+                      pack.iconPath.isEmpty()
+                          ? QIcon()
+                          : QIcon(pack.iconPath));
+    themesMenu->addSeparator();
+    themesMenu->addAction(tr("Customize Home..."), this,
+                          &MainWindow::openCustomizeHome);
+    mEffectsAction = themesMenu->addAction(tr("Special Effects"));
+    mEffectsAction->setCheckable(true);
+    mEffectsAction->setChecked(dbsSpecialEffectsEnabled());
+    connect(mEffectsAction, &QAction::toggled, this, [this](bool on) {
+        dbsSetSpecialEffectsEnabled(on);
+        refreshDbsEffects();
+    });
+    // v1.6.0 Part 7: the Animations toggle (veil transitions, tile
+    // hover glow, window/menu fades). Default on, like effects.
+    QAction *animationsAction =
+        themesMenu->addAction(tr("Animations"));
+    animationsAction->setCheckable(true);
+    animationsAction->setChecked(dbsAnimationsEnabled());
+    connect(animationsAction, &QAction::toggled, this,
+            [](bool on) {
+        dbsSetAnimationsEnabled(on);
+        QApplication::setEffectEnabled(Qt::UI_AnimateMenu, on);
+        QApplication::setEffectEnabled(Qt::UI_FadeMenu, on);
+    });
+    QApplication::setEffectEnabled(Qt::UI_AnimateMenu,
+                                   dbsAnimationsEnabled());
+    QApplication::setEffectEnabled(Qt::UI_FadeMenu,
+                                   dbsAnimationsEnabled());
+    themesMenu->addSeparator();
+    themesMenu->addAction(tr("Colour Scheme && Font..."), this,
+                          [this]() {
+        changeOptions(SettingsDialog::tr("Appearance"),
+                      SettingsDialog::tr("Environment"));
+    });
+    connect(themesMenu, &QMenu::aboutToShow, this,
+            [this, themesMenu]() {
+        for (QAction *action : themesMenu->actions())
+            if (action->isCheckable() && action->data().isValid())
+                action->setChecked(action->data().toString()
+                                   == mAppliedPackId);
+        if (mEffectsAction)
+            mEffectsAction->setChecked(dbsSpecialEffectsEnabled());
+    });
+    ui->menubar->insertMenu(ui->menuHelp->menuAction(), themesMenu);
+
+    connect(mWelcomePage, &WelcomePage::customizeHomeRequested,
+            this, &MainWindow::openCustomizeHome);
+
+    // Full-screen Home follows the editor tabs of both panes.
+    connect(ui->EditorTabsLeft, &QTabWidget::currentChanged,
+            this, [this]() { dbsRefreshHomeFullscreen(); });
+    connect(ui->EditorTabsRight, &QTabWidget::currentChanged,
+            this, [this]() { dbsRefreshHomeFullscreen(); });
+
+    // The effects overlay floats above the whole main window.
+    mEffectsOverlay = new DbsEffectsOverlay(this);
+    mEffectsOverlay->setRoomsRectProvider([this]() -> QRect {
+        if (!mRoomsDock || !mRoomsDock->isVisible())
+            return QRect();
+        return QRect(mRoomsDock->mapTo(this, QPoint(0, 0)),
+                     mRoomsDock->size());
+    });
+    // Part 6 (corrected): the toolbar strip anchors the "toolbox"
+    // technique streaks (Thunder Breathing and friends). The
+    // toolbar list is captured once; the provider unions the
+    // visible horizontal toolbars.
+    const QList<QToolBar *> toolbars = findChildren<QToolBar *>();
+    mEffectsOverlay->setToolbarRectProvider(
+        [this, toolbars]() -> QRect {
+        QRect r;
+        for (QToolBar *tb : toolbars) {
+            if (tb->isVisible() && tb->orientation() == Qt::Horizontal)
+                r = r.united(QRect(tb->mapTo(this, QPoint(0, 0)),
+                                   tb->size()));
+        }
+        return r;
+    });
+    mEffectsOverlay->setFxEnabled(dbsSpecialEffectsEnabled());
+
+    // Starting pack: the saved one; otherwise the pack whose editor
+    // scheme is already in use (e.g. chosen via Appearance earlier).
+    QString packId = dbsActivePackId();
+    if (packId.isEmpty() && pSettings) {
+        if (const DbsThemePack *pack =
+                dbsPackForScheme(pSettings->editor().colorScheme()))
+            packId = pack->id;
+    }
+    applyDbsThemePack(packId, false);
+    // The startup Home may already be current before the tab
+    // connections above existed — evaluate the chrome once.
+    dbsRefreshHomeFullscreen();
+    // ...and once more shortly after startup: files from the
+    // command line / session restore can land after the first
+    // evaluation (and after a veil midpoint), so re-sync the
+    // chrome with the settled tab state.
+    QTimer::singleShot(900, this,
+                       [this]() { dbsRefreshHomeFullscreen(); });
+}
+
+void MainWindow::applyDbsThemePack(const QString &packId,
+                                   bool updateScheme)
+{
+    mAppliedPackId = packId;
+    dbsSetActivePackId(packId);
+    const DbsThemePack *pack = dbsThemePackById(packId);
+    if (pack && updateScheme && pSettings) {
+        pSettings->editor().setColorScheme(pack->schemeName);
+        pSettings->editor().save();
+        updateEditorColorSchemes();
+    }
+    if (mWelcomePage) {
+        if (pack) {
+            mWelcomePage->setThemeArtworks(
+                pack->wallpapers, dbsPinnedHomeArt(pack->id));
+        } else {
+            const QString pin =
+                dbsPinnedHomeArt(QStringLiteral("classic"));
+            if (!pin.isEmpty())
+                mWelcomePage->setThemeArtworks({pin}, pin);
+            else
+                mWelcomePage->clearThemeArtworks();
+        }
+    }
+    updateDbsBackdrop();
+    refreshDbsEffects();
+}
+
+void MainWindow::openCustomizeHome()
+{
+    const DbsThemePack *pack = dbsThemePackById(mAppliedPackId);
+    if (dbsShowCustomizeHomeDialog(this, pack))
+        applyDbsThemePack(mAppliedPackId, false);
+}
+
+void MainWindow::updateDbsBackdrop()
+{
+    const QList<QWidget *> targets = {
+        ui->centralwidget, ui->dockExplorer, ui->dockMessages,
+        mRoomsDock, mRoomsPanel, ui->EditorTabsLeft,
+        ui->EditorTabsRight,
+    };
+    const DbsThemePack *pack = dbsThemePackById(mAppliedPackId);
+    if (!pack) {
+        for (QWidget *widget : targets) {
+            if (widget && mBackdropSaved.contains(widget)) {
+                widget->setPalette(mBackdropSaved.value(widget));
+                mBackdropSaved.remove(widget);
+            }
+        }
+        return;
+    }
+    QString artPath = dbsPinnedHomeArt(pack->id);
+    if (artPath.isEmpty() || !pack->wallpapers.contains(artPath))
+        artPath = pack->wallpapers.first();
+    QPixmap art(artPath);
+    if (art.isNull())
+        return;
+    // A dimmed, pre-scaled copy of the Home wallpaper, cached on
+    // disk so the palette brush can paint it behind the panels at
+    // no per-frame decoding cost. The editor itself keeps its solid
+    // readable background — this only textures the window chrome
+    // and panel frames.
+    art = art.scaledToWidth(qMin(1400, art.width()),
+                            Qt::SmoothTransformation);
+    QPixmap dimmed(art.size());
+    dimmed.fill(Qt::black);
+    {
+        QPainter painter(&dimmed);
+        painter.setOpacity(0.34);
+        painter.drawPixmap(0, 0, art);
+        painter.end();
+    }
+    const QString cacheDir =
+        QStringLiteral("%1/cache")
+            .arg(QFileInfo(pSettings->filename()).absolutePath());
+    QDir().mkpath(cacheDir);
+    const QString filePath =
+        cacheDir + QStringLiteral("/dbs-backdrop.png");
+    if (!dimmed.save(filePath, "PNG"))
+        return;
+    QPixmap backdropPix(filePath);
+    if (backdropPix.isNull())
+        return;
+    const QBrush brush(backdropPix);
+    for (QWidget *widget : targets) {
+        if (!widget)
+            continue;
+        if (!mBackdropSaved.contains(widget))
+            mBackdropSaved.insert(widget, widget->palette());
+        QPalette pal = widget->palette();
+        pal.setBrush(QPalette::Window, brush);
+        widget->setAutoFillBackground(true);
+        widget->setPalette(pal);
+    }
+}
+
+void MainWindow::refreshDbsEffects()
+{
+    if (!mEffectsOverlay)
+        return;
+    const DbsThemePack *pack = dbsThemePackById(mAppliedPackId);
+    mEffectsOverlay->setFxKind(pack ? pack->fxKind : DbsFxKind::None);
+    mEffectsOverlay->setFxEnabled(dbsSpecialEffectsEnabled());
+}
+
+void MainWindow::dbsRefreshHomeFullscreen()
+{
+    if (!mWelcomePage)
+        return;
+    QTabWidget *hostTabs = ui->EditorTabsLeft;
+    if (ui->EditorTabsRight->indexOf(mWelcomePage) >= 0)
+        hostTabs = ui->EditorTabsRight;
+    QTabWidget *otherTabs = hostTabs == ui->EditorTabsLeft
+                                ? ui->EditorTabsRight
+                                : ui->EditorTabsLeft;
+    bool otherHasEditor = false;
+    if (otherTabs->isVisible()) {
+        for (int i = 0; i < otherTabs->count(); i++)
+            if (qobject_cast<Editor *>(otherTabs->widget(i)))
+                otherHasEditor = true;
+    }
+    const bool wantFullscreen =
+        hostTabs->currentWidget() == mWelcomePage && !otherHasEditor;
+    if (wantFullscreen == mHomeFullscreen)
+        return;
+    // Part 7: the layout switch fades through the effects veil —
+    // the old view darkens briefly, the chrome toggles under cover,
+    // and the new view is revealed. No veil (or animations off)
+    // applies the switch immediately.
+    if (mEffectsOverlay && dbsAnimationsEnabled() && !mVeilRefresh) {
+        mEffectsOverlay->fadeThrough([this]() {
+            // Recompute at midpoint time: a file may have opened
+            // (or closed) since this transition was scheduled —
+            // applying the captured decision would strand the
+            // chrome in the wrong state.
+            mVeilRefresh = true;
+            dbsRefreshHomeFullscreen();
+            mVeilRefresh = false;
+        });
+    } else {
+        dbsApplyHomeFullscreen(wantFullscreen);
+    }
+}
+
+void MainWindow::dbsUpdateFaceAvoid()
+{
+    if (!mEffectsOverlay)
+        return;
+    if (!mHomeFullscreen || !mWelcomePage) {
+        mEffectsOverlay->setAvoidRect({});
+        return;
+    }
+    const QRectF fr = mWelcomePage->currentFaceRect();
+    if (fr.isEmpty()) {
+        mEffectsOverlay->setAvoidRect({});
+        return;
+    }
+    const QPoint tl = mWelcomePage->mapTo(this, fr.topLeft().toPoint());
+    const QPoint br =
+        mWelcomePage->mapTo(this, fr.bottomRight().toPoint());
+    mEffectsOverlay->setAvoidRect(QRect(tl, br).normalized());
+}
+
+void MainWindow::dbsApplyHomeFullscreen(bool fullscreen)
+{
+    if (fullscreen == mHomeFullscreen)
+        return;
+    const bool wantFullscreen = fullscreen;
+    if (wantFullscreen) {
+        // Home owns the whole window: every dock, toolbar, tab bar
+        // and the status bar step aside (the menu bar stays).
+        mHomeFullscreen = true;
+        mChromeSaved.clear();
+        for (QDockWidget *dock : findChildren<QDockWidget *>()) {
+            mChromeSaved.insert(dock, dock->isVisible());
+            dock->hide();
+        }
+        for (QToolBar *bar : findChildren<QToolBar *>()) {
+            mChromeSaved.insert(bar, bar->isVisible());
+            bar->hide();
+        }
+        for (QTabWidget *tabs :
+             {ui->EditorTabsLeft, ui->EditorTabsRight}) {
+            if (QTabBar *tabBar = tabs->findChild<QTabBar *>()) {
+                mChromeSaved.insert(tabBar, tabBar->isVisible());
+                tabBar->hide();
+            }
+        }
+        mStatusBarWasVisible = statusBar()->isVisible();
+        statusBar()->hide();
+        // Face avoidance: the effects overlay now keeps every
+        // streak out of the Home artwork's face zone. The art can
+        // rotate while Home is up, so re-sync on a slow timer.
+        if (!mFaceAvoidTimer) {
+            mFaceAvoidTimer = new QTimer(this);
+            mFaceAvoidTimer->setInterval(800);
+            connect(mFaceAvoidTimer, &QTimer::timeout, this,
+                    [this]() { dbsUpdateFaceAvoid(); });
+        }
+        dbsUpdateFaceAvoid();
+        mFaceAvoidTimer->start();
+    } else {
+        // Back to the IDE: restore exactly what was visible before.
+        mHomeFullscreen = false;
+        for (auto it = mChromeSaved.begin(); it != mChromeSaved.end();
+             ++it)
+            if (it.key())
+                it.key()->setVisible(it.value());
+        mChromeSaved.clear();
+        statusBar()->setVisible(mStatusBarWasVisible);
+        if (mFaceAvoidTimer)
+            mFaceAvoidTimer->stop();
+        if (mEffectsOverlay)
+            mEffectsOverlay->setAvoidRect({});
+    }
+}
+
+void MainWindow::showRoomsDockAnimated()
+{
+    if (!mRoomsDock)
+        return;
+    const bool wasHidden = !mRoomsDock->isVisible();
+    mRoomsDock->show();
+    mRoomsDock->raise();
+    if (!wasHidden || !dbsAnimationsEnabled())
+        return;
+    // Part 7: slide the dock in from zero width (200 ms, OutCubic).
+    // resizeDocks drives the main-window layout; a handful of
+    // layout passes on a small surface, cheap enough for Winlator.
+    const int target = qMax(mRoomsDock->width(), 200);
+    auto *anim = new QVariantAnimation(this);
+    anim->setDuration(280);
+    anim->setStartValue(0);
+    anim->setEndValue(target);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(anim, &QVariantAnimation::valueChanged, this,
+            [this](const QVariant &value) {
+        resizeDocks({mRoomsDock}, {value.toInt()}, Qt::Horizontal);
+    });
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
 }

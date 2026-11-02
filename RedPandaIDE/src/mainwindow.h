@@ -42,7 +42,9 @@
 #include "problems/competitivecompenionhandler.h"
 #include "utils/parsemacros.h"
 #include "utils/file.h"
+#include <QHash>
 #include <QMap>
+#include <QPalette>
 #include <QPointer>
 #include <QSet>
 #include "rooms/roomclient.h"
@@ -386,8 +388,34 @@ private:
     void dbsRunAllCompare();
     void dbsCheckForUpdates(bool manual);
     // v1.5.0: download the new setup inside the app and launch it.
+    // v1.6.0: expectedSize (from the releases API) drives the
+    // resumable updater's completion check.
     void dbsDownloadAndInstallUpdate(const QString &url,
-                                     const QString &version);
+                                     const QString &version,
+                                     qint64 expectedSize = 0);
+    // v1.6.0: theme packs, full-screen Home, panel backdrop, effects
+    void setupDbsThemes();
+    // Applies a pack ("" = classic). updateScheme also switches the
+    // editor colour scheme to the pack's scheme.
+    void applyDbsThemePack(const QString &packId, bool updateScheme);
+    void openCustomizeHome();
+    void updateDbsBackdrop();
+    void refreshDbsEffects();
+    // Shows/hides the IDE chrome so Home can own the whole window.
+    void dbsRefreshHomeFullscreen();
+    // Part 7: the actual chrome toggle (runs under the veil when
+    // animations are on).
+    void dbsApplyHomeFullscreen(bool fullscreen);
+    // Part 7: shows the Rooms dock with a short slide-in.
+    void showRoomsDockAnimated();
+    // Part 7 veil bookkeeping: a scheduled transition recomputes
+    // its target at midpoint time (the world may have moved on).
+    bool mVeilRefresh = false;
+    // Face avoidance for the effects overlay on fullscreen Home.
+    void dbsUpdateFaceAvoid();
+    class QTimer *mFaceAvoidTimer = nullptr;
+    bool mVeilPackSet = false;
+    QString mVeilPackId;
     // v1.3.0: Messages popup, member restriction, welcome page
     void showRoomChatWindow();
     void onRoomRestrictRequested(const QString &memberId, bool restricted);
@@ -1043,6 +1071,14 @@ private:
     int mDbsRecheckId = 0;
     QString mDbsRecheckFilename;
     QString mDbsRecheckDescription;
+    // v1.6.0: theme packs + full-screen Home state
+    class DbsEffectsOverlay *mEffectsOverlay = nullptr;
+    QAction *mEffectsAction = nullptr;
+    QString mAppliedPackId;
+    bool mHomeFullscreen = false;
+    bool mStatusBarWasVisible = true;
+    QHash<QWidget *, bool> mChromeSaved;
+    QHash<QWidget *, QPalette> mBackdropSaved;
     QLabel *mFileInfoStatus;
     LabelWithMenu *mFileEncodingStatus;
     QLabel *mFileModeStatus;

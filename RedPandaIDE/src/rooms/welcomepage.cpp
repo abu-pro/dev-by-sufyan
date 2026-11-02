@@ -39,6 +39,12 @@
 #include <QTimer>
 #include <QVBoxLayout>
 
+#include "dbstheme.h"
+#include "dbsfx.h"
+
+#include <QEvent>
+#include <QVariantAnimation>
+
 namespace {
 
 // Per-artwork presentation data:
@@ -52,6 +58,10 @@ struct ArtInfo {
     QPointF anchor;
     qreal faceX;
     QColor accent;
+    // The head/face zone in SOURCE fractions (hair included). The
+    // effects overlay keeps every streak out of this box on Home —
+    // the user's hard rule: no UI element over a face, ever.
+    QRectF faceRect{};
 };
 
 ArtInfo artInfoFor(const QString &path)
@@ -67,6 +77,18 @@ ArtInfo artInfoFor(const QString &path)
     if (name == "welcome-art-08") return {{0.78, 0.32}, 0.78, QColor{0xD9, 0x7B, 0x36}}; // Pain — burnt orange
     if (name == "welcome-art-09") return {{0.47, 0.28}, 0.47, QColor{0x6E, 0xC1, 0xFF}}; // boy facing the sky — sky blue
     if (name == "welcome-art-10") return {{0.02, 0.45}, 0.56, QColor{0x35, 0xA7, 0xFF}}; // Luffy Gear 5 — sky blue
+    // v1.6.0 theme-pack wallpapers (the user's own folders). Every
+    // pick keeps the main face large, sharp and on the side opposite
+    // the tile column; the anchor centres the cover-crop on the face
+    // (a small anchor pulls a centre face right of the tiles).
+    if (name == "theme-ds-01") return {{0.45, 0.30}, 0.80, QColor{0xFF, 0xC2, 0x1C}, QRectF{0.395, 0.03, 0.36, 0.50}}; // Zenitsu portrait — face right
+    if (name == "theme-ds-02") return {{0.03, 0.35}, 0.13, QColor{0xFF, 0x7A, 0x3D}, QRectF{0.02, 0.02, 0.34, 0.48}}; // Tanjiro in flames — face left
+    if (name == "theme-ds-03") return {{0.85, 0.35}, 0.74, QColor{0xB9, 0xCC, 0xE0}, QRectF{0.30, 0.05, 0.42, 0.55}}; // Tanjiro B/W — face right
+    if (name == "theme-ds-04") return {{0.06, 0.30}, 0.20, QColor{0xFF, 0xD2, 0x3F}, QRectF{0.05, 0.05, 0.35, 0.50}}; // Zenitsu lightning — face left
+    if (name == "theme-db-01") return {{0.30, 0.30}, 0.67, QColor{0x4D, 0xD8, 0xFF}, QRectF{0.495, 0.045, 0.335, 0.37}}; // SSB Goku & Vegeta — faces right, empty sky left
+    if (name == "theme-db-02") return {{0.35, 0.30}, 0.72, QColor{0xB3, 0x88, 0xFF}, QRectF{0.595, 0.0, 0.28, 0.58}}; // Beerus — face right, starfield left
+                if (name == "theme-mha-01") return {{0.0, 0.40}, 0.71, QColor{0x35, 0xD0, 0x7F}, QRectF{0.36, 0.10, 0.64, 0.64}}; // Tsuyu pond (leaf included) — face centre-right, open sky/water left
+    if (name == "theme-mha-02") return {{0.10, 0.26}, 0.53, QColor{0xFF, 0xC2, 0x4D}}; // All Might poster — face centre, crop pulls it right
     return {{0.5, 0.4}, 0.5, QColor{0xE0, 0x23, 0x23}};
 }
 
@@ -105,6 +127,11 @@ WelcomePage::WelcomePage(QWidget *parent) :
     mTitleLabel = new QLabel{mContent};
     mTitleLabel->setAttribute(Qt::WA_TranslucentBackground);
     titleCol->addWidget(mTitleLabel);
+    mWordmarkBand = new QWidget{mContent};
+    mWordmarkBand->setFixedHeight(44);
+    mWordmarkBand->setMinimumWidth(350);
+    mWordmarkBand->setAttribute(Qt::WA_TranslucentBackground);
+    titleCol->addWidget(mWordmarkBand);
     auto *madeByLabel = new QLabel{tr("Made by Abu Sufyan"), mContent};
     madeByLabel->setStyleSheet("font-size: 11pt; color: #dfe3ec;");
     madeByLabel->setAttribute(Qt::WA_TranslucentBackground);
@@ -135,6 +162,8 @@ WelcomePage::WelcomePage(QWidget *parent) :
                                          : title + "\n" + subtitle);
         tile->setMinimumSize(190, 62);
         tile->setCursor(Qt::PointingHandCursor);
+        tile->installEventFilter(this);  // Part 7 hover glow
+        mTileGlow.insert(tile, 0.0);
         mTiles << tile;
         mAnimatables << tile;
         return tile;
@@ -159,6 +188,10 @@ WelcomePage::WelcomePage(QWidget *parent) :
     auto *continueTile = makeTile(tr("Continue Coding"),
                                   tr("Go back to your open files"));
     mContinueTile = continueTile;
+    // v1.6.0: Customize Home — pick which wallpaper of the active
+    // theme set Home shows (the Themes menu has the same option).
+    auto *customizeTile = makeTile(tr("Customize Home"),
+                                   tr("Pick the Home wallpaper"));
     tiles->addWidget(newDocTile, 0, 0);
     tiles->addWidget(openDocTile, 0, 1);
     tiles->addWidget(newProjectTile, 1, 0);
@@ -167,6 +200,7 @@ WelcomePage::WelcomePage(QWidget *parent) :
     tiles->addWidget(fontTile, 2, 1);
     tiles->addWidget(templatesTile, 3, 0, 1, 2);
     tiles->addWidget(continueTile, 4, 0, 1, 2);
+    tiles->addWidget(customizeTile, 5, 0, 1, 2);
     col->addLayout(tiles);
 
     // ---- Recent files (v1.3.2): filled from the visit history ---------
@@ -221,6 +255,8 @@ WelcomePage::WelcomePage(QWidget *parent) :
             this, &WelcomePage::fontRequested);
     connect(templatesTile, &QPushButton::clicked,
             this, &WelcomePage::templatesRequested);
+    connect(customizeTile, &QPushButton::clicked,
+            this, &WelcomePage::customizeHomeRequested);
 
     loadArtworks();
     applyAccentStyles();
@@ -271,6 +307,41 @@ void WelcomePage::setContinueVisible(bool visible)
         mContinueTile->setVisible(visible);
 }
 
+void WelcomePage::setThemeArtworks(const QStringList &paths,
+                                   const QString &pinnedPath)
+{
+    if (paths.isEmpty()) {
+        clearThemeArtworks();
+        return;
+    }
+    mThemeMode = true;
+    if (!pinnedPath.isEmpty() && paths.contains(pinnedPath))
+        mArtFiles = QStringList{pinnedPath};
+    else
+        mArtFiles = paths;
+    mArtIndex = 0;
+    refreshThemeArt();
+}
+
+void WelcomePage::clearThemeArtworks()
+{
+    if (!mThemeMode)
+        return;
+    mThemeMode = false;
+    loadArtworks();
+    mArtIndex = 0;
+    if (isVisible() && !mArtFiles.isEmpty())
+        showArtwork(0, false);
+}
+
+void WelcomePage::refreshThemeArt()
+{
+    // When the page is hidden, showEvent applies the set; when it is
+    // on screen (a theme switch), swap right away.
+    if (isVisible() && !mArtFiles.isEmpty())
+        showArtwork(0, false);
+}
+
 void WelcomePage::setFadeProgress(qreal value)
 {
     mFadeProgress = value;
@@ -286,17 +357,9 @@ void WelcomePage::setAccentColor(const QColor &color)
 void WelcomePage::applyAccentStyles()
 {
     const QString accent = mAccent.name();
-    const QString light = mAccent.lighter(135).name();
-    const QString tileStyle =
-            "QPushButton { background: rgba(8,10,16,0.55);"
-            " border: 1.5px solid " + accent + "; border-radius: 12px;"
-            " color: #ffffff; padding: 9px 12px; text-align: left;"
-            " font-size: 11pt; }"
-            "QPushButton:hover { background: " + rgba(mAccent, 64) + ";"
-            " border: 1.5px solid " + light + "; }"
-            "QPushButton:pressed { background: " + rgba(mAccent, 110) + "; }";
     for (QPushButton *tile : mTiles)
-        tile->setStyleSheet(tileStyle);
+        tile->setStyleSheet(
+            tileStyleSheet(mTileGlow.value(tile, 0.0)));
     // Recent-files list borrows the same accent, so it recolours with
     // every artwork exactly like the tiles do.
     if (mRecentList) {
@@ -315,11 +378,12 @@ void WelcomePage::applyAccentStyles()
         mRecentTitle->setStyleSheet(
                 "font-size: 11pt; font-weight: bold; color: " + accent
                 + ";");
+    // The "Dev by Sufyan" wordmark itself is painted GTA-style
+    // (gradient from the live accent) over mWordmarkBand in
+    // paintEvent — rich text cannot do gradient lettering.
     mTitleLabel->setText(
                 "<span style=\"font-size:15pt; color:#ffffff;\">"
-                + tr("Welcome to") + "</span><br/>"
-                "<span style=\"font-size:29pt; font-weight:bold; color:"
-                + accent + ";\">Dev by Sufyan</span>");
+                + tr("Welcome to") + "</span>");
 }
 
 void WelcomePage::loadArtworks()
@@ -350,6 +414,30 @@ void WelcomePage::loadArtworks()
         for (const QString &file : files)
             mArtFiles << d.absoluteFilePath(file);
     }
+}
+
+QRectF WelcomePage::currentFaceRect() const
+{
+    // Map the source-space face box through the same cover
+    // transform coverFor() applies, into widget coordinates.
+    if (mCurrentFaceRect.isEmpty() || mCurrentSource.isNull()
+            || width() < 10 || height() < 10)
+        return {};
+    const QSize target = size();
+    QPixmap cover = mCurrentSource.scaled(
+        target, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
+    const int cx = qBound(0, int((cover.width() - target.width())
+                                 * mCurrentAnchor.x()),
+                          cover.width() - target.width());
+    const int cy = qBound(0, int((cover.height() - target.height())
+                                 * mCurrentAnchor.y()),
+                          cover.height() - target.height());
+    const qreal sx = qreal(cover.width()) / mCurrentSource.width();
+    const qreal sy = qreal(cover.height()) / mCurrentSource.height();
+    return {mCurrentFaceRect.left() * mCurrentSource.width() * sx - cx,
+            mCurrentFaceRect.top() * mCurrentSource.height() * sy - cy,
+            mCurrentFaceRect.width() * mCurrentSource.width() * sx,
+            mCurrentFaceRect.height() * mCurrentSource.height() * sy};
 }
 
 QPixmap WelcomePage::coverFor(const QPixmap &source,
@@ -393,6 +481,7 @@ void WelcomePage::showArtwork(int index, bool fade)
     mPreviousAnchor = mCurrentAnchor;
     mCurrentSource = QPixmap{path};
     mCurrentAnchor = info.anchor;
+    mCurrentFaceRect = info.faceRect;
 
     // The text zone sits opposite the face: face on the left half
     // pushes the content to the right, and vice versa.
@@ -405,12 +494,12 @@ void WelcomePage::showArtwork(int index, bool fade)
     rebuildCoverCache();
     if (!mFadeAnim) {
         mFadeAnim = new QPropertyAnimation{this, "fadeProgress", this};
-        mFadeAnim->setDuration(650);
+        mFadeAnim->setDuration(900);
         mFadeAnim->setEasingCurve(QEasingCurve::InOutQuad);
     }
     if (!mAccentAnim) {
         mAccentAnim = new QPropertyAnimation{this, "accentColor", this};
-        mAccentAnim->setDuration(650);
+        mAccentAnim->setDuration(900);
         mAccentAnim->setEasingCurve(QEasingCurve::InOutQuad);
     }
     mFadeAnim->stop();
@@ -473,6 +562,14 @@ void WelcomePage::paintEvent(QPaintEvent *event)
             : QRect{0, int(height() * 0.60),
                     int(width() * 0.58), int(height() * 0.40)};
     painter.fillRect(floorRect, floorGrad);
+
+    // GTA-style wordmark over its layout band, in the live accent.
+    if (mWordmarkBand) {
+        const QRect band{mWordmarkBand->mapTo(this, QPoint{0, 0}),
+                         mWordmarkBand->size()};
+        dbsPaintWordmark(painter, QRectF{band},
+                         QStringLiteral("Dev by Sufyan"), mAccent);
+    }
 }
 
 void WelcomePage::startEntranceAnimation()
@@ -503,13 +600,21 @@ void WelcomePage::showEvent(QShowEvent *event)
 {
     QWidget::showEvent(event);
     if (!mArtFiles.isEmpty()) {
-        // Each launch shows the NEXT artwork: read the persisted index,
-        // display it, and persist the following one for the next launch.
-        QSettings settings;
-        int stored = settings.value("welcome/artIndex", 0).toInt();
-        showArtwork(stored, false);
-        settings.setValue("welcome/artIndex",
-                          (mArtIndex + 1) % mArtFiles.size());
+        if (mThemeMode) {
+            // Theme-pack set: start at the hero (or the pinned
+            // wallpaper) and rotate inside the set only; the
+            // persisted per-launch index belongs to the classic set.
+            showArtwork(mArtIndex, false);
+        } else {
+            // Each launch shows the NEXT artwork: read the persisted
+            // index, display it, and persist the following one for
+            // the next launch.
+            QSettings settings;
+            int stored = settings.value("welcome/artIndex", 0).toInt();
+            showArtwork(stored, false);
+            settings.setValue("welcome/artIndex",
+                              (mArtIndex + 1) % mArtFiles.size());
+        }
     }
     startEntranceAnimation();
     mRotateTimer->start();
@@ -525,4 +630,78 @@ void WelcomePage::resizeEvent(QResizeEvent *event)
 {
     QWidget::resizeEvent(event);
     rebuildCoverCache();
+}
+
+// ---------------------------------------------------------------------------
+// Part 7: tile hover/press micro-animations. The glow (0..1) drives
+// the tile's background depth and border brightness; a hover fades
+// in over ~140 ms instead of the old instant :hover swap. Only the
+// hovered tile's (small) stylesheet is rebuilt per frame.
+// ---------------------------------------------------------------------------
+
+QString WelcomePage::tileStyleSheet(qreal glow) const
+{
+    const int bgAlpha = int(140 + 80 * glow);  // 140..220 of 255
+    const QColor border = mAccent.lighter(int(100 + 60 * glow));
+    return QStringLiteral(
+               "QPushButton { background: %1;"
+               " border: 1.5px solid %2; border-radius: 12px;"
+               " color: #ffffff; padding: 9px 12px;"
+               " text-align: left; font-size: 11pt; }"
+               "QPushButton:pressed { background: %3; }")
+        .arg(QStringLiteral("rgba(8,10,16,%1)").arg(bgAlpha),
+             border.name(), rgba(mAccent, 120));
+}
+
+void WelcomePage::setTileGlow(QPushButton *tile, qreal glow)
+{
+    mTileGlow.insert(tile, glow);
+    tile->setStyleSheet(tileStyleSheet(glow));
+}
+
+void WelcomePage::animateTileGlow(QPushButton *tile, qreal target,
+                                  int durationMs)
+{
+    if (!dbsAnimationsEnabled()) {
+        setTileGlow(tile, target);
+        return;
+    }
+    if (QVariantAnimation *old = mTileAnims.value(tile))
+        old->stop();
+    auto *anim = new QVariantAnimation(tile);
+    anim->setDuration(durationMs);
+    anim->setStartValue(mTileGlow.value(tile, 0.0));
+    anim->setEndValue(target);
+    anim->setEasingCurve(QEasingCurve::OutCubic);
+    connect(anim, &QVariantAnimation::valueChanged, this,
+            [this, tile](const QVariant &value) {
+        setTileGlow(tile, value.toReal());
+    });
+    mTileAnims.insert(tile, anim);
+    anim->start(QAbstractAnimation::DeleteWhenStopped);
+}
+
+bool WelcomePage::eventFilter(QObject *watched, QEvent *event)
+{
+    auto *tile = qobject_cast<QPushButton *>(watched);
+    if (tile && mTiles.contains(tile)) {
+        switch (event->type()) {
+        case QEvent::Enter:
+            animateTileGlow(tile, 1.0, 200);
+            break;
+        case QEvent::Leave:
+            animateTileGlow(tile, 0.0, 280);
+            break;
+        case QEvent::MouseButtonPress:
+            animateTileGlow(tile, 1.0, 80);
+            break;
+        case QEvent::MouseButtonRelease:
+            animateTileGlow(tile, tile->underMouse() ? 1.0 : 0.0,
+                            160);
+            break;
+        default:
+            break;
+        }
+    }
+    return QWidget::eventFilter(watched, event);
 }

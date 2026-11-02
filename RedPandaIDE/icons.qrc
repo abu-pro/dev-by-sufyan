@@ -25,6 +25,18 @@
         <file>images/welcome-art-08.jpg</file>
         <file>images/welcome-art-09.jpg</file>
         <file>images/welcome-art-10.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-01.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-02.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-03.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-04.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-loading.jpg</file>
+        <file>images/themes/demonslayer/icon.png</file>
+        <file>images/themes/dragonball/theme-db-01.jpg</file>
+        <file>images/themes/dragonball/theme-db-02.jpg</file>
+        <file>images/themes/dragonball/theme-db-loading.jpg</file>
+        <file>images/themes/dragonball/icon.png</file>
+        <file>images/themes/mha/theme-mha-01.jpg</file>
+        <file>images/themes/mha/theme-mha-02.jpg</file>
     </qresource>
     <qresource prefix="/demos">
         <file alias="dark.png">images/demos/dark.png</file>

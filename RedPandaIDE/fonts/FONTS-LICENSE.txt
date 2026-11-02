@@ -1,0 +1,10 @@
+Bundled fonts (v1.6.0), both under the SIL Open Font License 1.1:
+
+- Inter (Regular, Bold, ExtraBold) — Copyright The Inter Project Authors,
+  https://github.com/rsms/inter — SIL OFL 1.1.
+- JetBrains Mono (Regular, Bold) — Copyright The JetBrains Mono Project
+  Authors, https://github.com/JetBrains/JetBrainsMono — SIL OFL 1.1.
+
+The shipped files are subsets (Latin + common punctuation/symbols)
+produced with fonttools from the upstream releases; glyphs and design
+are otherwise unmodified.

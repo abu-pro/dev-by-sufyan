@@ -163,29 +163,30 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.5.1 release with the installer and the
+      # Publishes (or updates) the v1.6.0 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.1
-          name: Dev by Sufyan — Red Panda Edition (v1.5.1)
+          tag_name: v1.6.0
+          name: Dev by Sufyan — Red Panda Edition (v1.6.0)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.5.1)**
+            **Dev by Sufyan — Red Panda Edition (v1.6.0)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.5.1:
-            - **Fix Lagao — one-click fixes for compiler errors** — double-click an error in the Issues list; when the repair is certain (a missing `;`, a missing `)` or `}`, a missing `:` in Python, a missing `#include` like `<iostream>`, the compiler's own "did you mean" name, Python `print` without brackets), the explanation now shows the exact line that will result and a **Fix it for me** button applies it — through the normal editor undo, so Ctrl+Z takes it back
-            - **Fix & Recheck** — the second button applies the fix and immediately recompiles the file, then honestly reports whether that same error is gone or still there
-            - **Error dictionary doubled again: 210 entries** (was 107) — many more GCC/MinGW C and C++ messages (format mismatches, pointer and conversion warnings, switch/case, array/string traps, preprocessor problems, linker leftovers) and a much deeper Python set (unpacking, imports, files, iteration, formatting) — plus a new **Error Dictionary window** (Help menu, or right-click in the Issues list) to search and browse all 210 without compiling
-            - **Rooms panel tidied** — the not-in-a-room view no longer wastes a big empty gap above the Create/Join controls
-            - **Program Templates on the Home page** — Multiplication Table, Factorial, Prime Check, Simple Calculator and Sum & Average in C++, C and Python: pick one and it opens as a new saved document, ready to run and edit
-            - **Web app: ping indicator too** — the browser version of Rooms now shows the same coloured ping dot + ms while you are in a room
+            New in v1.6.0:
+            - **Updater fixed — downloads resume and the install is recoverable** — updates now download into a kept folder (AppData DevBySufyan updates); a stalled or dropped download **resumes from where it stopped** instead of restarting (HTTP Range resume plus a stall watchdog that reconnects on its own); the file is only accepted when its size matches the release exactly; and after downloading, a panel shows the installer's exact saved path with an **Open Installer** button, so even if the automatic launch is blocked (Winlator), one click — or running the shown file yourself — finishes the job
+            - **Three full theme packs: Demon Slayer, Dragon Ball, My Hero Academia** (Themes menu) — each brings its own editor colour scheme, icon tint, curated wallpapers, a matching loading screen and its own ambient effects. The five classic anime themes keep working as before
+            - **Full-screen Home** — Home now owns the whole window: wallpaper edge to edge, panels and toolbars tucked away. Open or create a document and the full IDE layout comes back; return to Home and it is full-screen again
+            - **Customize Home** — a new tile on Home (and in the Themes menu) lets you pick exactly which wallpaper of the active theme Home shows, or rotate them all — saved per theme. Every wallpaper was chosen so the character's face stays fully visible, never under the tiles
+            - **GTA-style loading screen** — every start opens with full-screen artwork from your current theme, the Dev by Sufyan wordmark, a progress bar and rotating tips
+            - **Special effects per theme** (Themes menu toggle, on by default, pauses when the window is not active) — Demon Slayer: lightning flashes, drifting embers and a little snake that slips along the Rooms panel; Dragon Ball: a golden aura pulse, rising energy sparks and ki flashes; My Hero Academia: spark bursts, comic speed lines and Plus Ultra colour pops
+            - **Theme backdrops** — with a pack active, its wallpaper also sits dimmed behind the side and bottom panels, while the code editor keeps its solid readable background
 
-            Updating from v1.5.0: this is the first release delivered through the in-app updater — when the app offers it, **Download & Install** downloads the setup inside the app, then opens it; run it once (install-over) and your files and settings stay as they are.
+            Updating from v1.5.1: the in-app updater in v1.5.1 could download but not install — for THIS update, please download `DevBySufyan-Setup.exe` below and run it once (install-over; files and settings are kept). From v1.6.0 on, the in-app updater resumes downloads and shows the installer panel described above.
 
-            Everything from v1.5.0 is still here: 60-member rooms, the live ping indicator, in-app update installs, auto-save + crash recovery, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo and flowchart.
+            Everything from v1.5.1 is still here: Fix Lagao one-click fixes with preview + undo, Fix & Recheck, the 210-entry error dictionary with its search window, Program Templates on Home, 60-member rooms with the live ping indicator, auto-save + crash recovery, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo and flowchart.
 
             - `DevBySufyan-Setup.exe` — Windows installer (Start Menu shortcut + uninstaller)
             - `DevBySufyan-Portable.zip` — portable folder, no install needed

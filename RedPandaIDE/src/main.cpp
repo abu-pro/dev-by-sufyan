@@ -15,6 +15,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "main.h"
+#include "rooms/dbsfx.h"
 #include "utils/os.h"
 #include <QIcon>
 
@@ -363,6 +364,26 @@ int main(int argc, char *argv[])
             pSettings->compilerSets().saveSets();
         }
         pSettings->load();
+        // v1.6.0 Part 8: bundled-font defaults. They apply ONLY
+        // where the saved value is still the untouched upstream
+        // platform default — a font the user picked themselves in
+        // Change Font is never overridden.
+        {
+            const QString uiFont = pSettings->environment().interfaceFont();
+            if (uiFont == defaultUiFont() || uiFont.isEmpty()
+                    || uiFont == QStringLiteral("Sans Serif"))
+                pSettings->environment().setInterfaceFont(
+                    QStringLiteral("Inter"));
+            // The saved editor value is a fallback LIST whose first
+            // entry is the platform default when untouched.
+            const QStringList fams = pSettings->editor().fontFamilies();
+            if (!fams.isEmpty() && fams.first() == defaultMonoFont())
+                pSettings->editor().setFontFamilies(
+                    {QStringLiteral("JetBrains Mono")});
+            if (pSettings->editor().gutterFontName() == defaultMonoFont())
+                pSettings->editor().setGutterFontName(
+                    QStringLiteral("JetBrains Mono"));
+        }
         if (firstRun) {
             //set theme
             ChooseThemeDialog themeDialog;
@@ -409,8 +430,34 @@ int main(int argc, char *argv[])
         }
         // qDebug()<<"Load font";
         QFontDatabase::addApplicationFont(":/fonts/asciicontrol.ttf");
+        // v1.6.0 Part 8: bundled fonts — Inter (UI) and JetBrains
+        // Mono (editor), SIL OFL, subset to Latin + common symbols.
+        // Registered before the splash/main window so every surface
+        // (and the Change Font dialogs, which list QFontDatabase
+        // families) can use them.
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/fonts/Inter-Regular.otf"));
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/fonts/Inter-Bold.otf"));
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/fonts/Inter-ExtraBold.otf"));
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/fonts/JetBrainsMono-Regular.ttf"));
+        QFontDatabase::addApplicationFont(
+            QStringLiteral(":/fonts/JetBrainsMono-Bold.ttf"));
 
         QDir::setCurrent(pSettings->environment().defaultOpenFolder());
+
+        // v1.6.0: GTA-style loading screen. Theme-aware artwork,
+        // shown while the main window and the session are built;
+        // progress is advanced at the real startup stages below.
+        DbsSplashScreen *splash =
+            dbsCreateSplashScreen(pSettings->editor().colorScheme());
+        if (splash) {
+            splash->show();
+            splash->setProgress(30, QObject::tr("Loading the editor"));
+            app.processEvents();
+        }
 
         MainWindow mainWindow;
         pMainWindow = &mainWindow;
@@ -418,6 +465,11 @@ int main(int argc, char *argv[])
             setScreenDPI(mainWindow.screen()->logicalDotsPerInch());
 
         mainWindow.show();
+        if (splash) {
+            splash->setProgress(65,
+                                QObject::tr("Preparing your workspace"));
+            app.processEvents();
+        }
 
         QStringList filesToOpen = app.arguments();
         filesToOpen.pop_front();
@@ -453,6 +505,11 @@ int main(int argc, char *argv[])
 
         //reset default open folder
         mainWindow.setFilesViewRoot(pSettings->environment().currentFolder());
+        if (splash) {
+            splash->setProgress(90, QObject::tr("Almost ready"));
+            splash->finishAndClose();
+            splash = nullptr;
+        }
 
 #ifdef Q_OS_WIN
         WindowLogoutEventFilter filter;

@@ -57,6 +57,8 @@
 #include "../compiler/compilermanager.h"
 #include "../settings.h"
 #include "dbsfeatures.h"
+#include "dbsupdater.h"
+#include "dbsfx.h"
 #include "roomclient.h"
 #include "roomspanel.h"
 #include "welcomepage.h"
@@ -66,7 +68,7 @@ namespace {
 
 // The one place the running version is named for the update checker;
 // the welcome page shows the same number (see setupWelcomePage).
-const char *const DBS_VERSION = "1.5.1";
+const char *const DBS_VERSION = "1.6.0";
 const char *const DBS_QUICKSAVE_KEY = "dbs/quickSaveEnabled";
 
 bool quickSaveEnabled()
@@ -2227,10 +2229,14 @@ void MainWindow::dbsCheckForUpdates(bool manual)
         }
         QString downloadUrl = root.value("html_url").toString();
         bool setupAsset = false;
+        qint64 setupSize = 0;
         for (const QJsonValue &value : root.value("assets").toArray()) {
             QJsonObject asset = value.toObject();
             if (asset.value("name").toString() == "DevBySufyan-Setup.exe") {
                 downloadUrl = asset.value("browser_download_url").toString();
+                // v1.6.0: the resumable updater verifies the finished
+                // download against this exact size before installing.
+                setupSize = asset.value("size").toVariant().toLongLong();
                 setupAsset = true;
                 break;
             }
@@ -2263,7 +2269,7 @@ void MainWindow::dbsCheckForUpdates(bool manual)
             // the app; the browser route is the fallback (and the
             // route for a release with no setup asset attached).
             if (setupAsset)
-                dbsDownloadAndInstallUpdate(downloadUrl, latest);
+                dbsDownloadAndInstallUpdate(downloadUrl, latest, setupSize);
             else
                 QDesktopServices::openUrl(QUrl(downloadUrl));
         }
@@ -2271,118 +2277,35 @@ void MainWindow::dbsCheckForUpdates(bool manual)
 }
 
 // ---------------------------------------------------------------------------
-// Part 3b — in-app update download (v1.5.0). The setup is fetched with
-// a progress dialog and launched from inside the app, so an update no
-// longer sends the user to the browser; any failure falls back to the
-// v1.4.0 browser route.
+// Part 3b — in-app update download. v1.5.0 fetched the setup in one
+// uninterruptible stream into the temp folder; on the user's phone
+// (Winlator) that meant stalls hung forever, partial downloads were
+// thrown away, and the install launch could fail silently — "it
+// downloads but never installs". v1.6.0 replaces it with the
+// resumable engine + persistent panel in dbsupdater.{h,cpp}:
+// downloads land in a persistent updates folder as
+// DevBySufyan-Setup.exe.part, resume via HTTP Range, recover from
+// stalls automatically, are size-verified against the releases API
+// before being renamed to DevBySufyan-Setup.exe, and end in a panel
+// that stays open with the saved path and an Open Installer button.
+// The browser route remains as this dialog's fallback button.
 // ---------------------------------------------------------------------------
 
-namespace {
-
-struct UpdateDownloadState {
-    bool cancelled = false;
-};
-
-} // namespace
-
 void MainWindow::dbsDownloadAndInstallUpdate(const QString &url,
-                                             const QString &version)
+                                             const QString &version,
+                                             qint64 expectedSize)
 {
-    const QString filePath =
-            QStandardPaths::writableLocation(QStandardPaths::TempLocation)
-            + QStringLiteral("/DevBySufyan-Setup-v%1.exe").arg(version);
-    auto *file = new QFile(filePath);
-    if (!file->open(QIODevice::WriteOnly)) {
-        delete file;
-        QMessageBox::warning(
-                    this, tr("Update download"),
-                    tr("The setup could not be saved on this computer. "
-                       "The download page will open in your browser "
-                       "instead."));
-        QDesktopServices::openUrl(QUrl(url));
-        return;
-    }
-    auto state = std::make_shared<UpdateDownloadState>();
-    auto *net = new QNetworkAccessManager(this);
-    QNetworkRequest request{QUrl(url)};
-    request.setHeader(QNetworkRequest::UserAgentHeader,
-                      QString("DevBySufyan/%1").arg(DBS_VERSION));
-    // The setup asset URL redirects to the file host; follow it.
-    request.setAttribute(QNetworkRequest::RedirectPolicyAttribute,
-                         QNetworkRequest::NoLessSafeRedirectPolicy);
-    QNetworkReply *reply = net->get(request);
-    auto *dialog = new QProgressDialog(
-                tr("Downloading Dev by Sufyan v%1...").arg(version),
-                tr("Cancel"), 0, 100, this);
-    dialog->setWindowTitle(tr("Update download"));
-    dialog->setWindowModality(Qt::WindowModal);
-    dialog->setAutoClose(false);
-    dialog->setAutoReset(false);
-    dialog->setMinimumDuration(0);
-    dialog->setValue(0);
+    // Keep downloads (and the resumable .part) in the settings
+    // folder — see dbsSetUpdatesDirAnchor.
+    if (pSettings && !pSettings->filename().isEmpty())
+        dbsSetUpdatesDirAnchor(
+            QFileInfo(pSettings->filename()).absolutePath());
+    auto *dialog = new DbsUpdateDialog(
+                QUrl(url), version, expectedSize,
+                QString("DevBySufyan/%1").arg(DBS_VERSION), this);
     dialog->show();
-
-    connect(dialog, &QProgressDialog::canceled, this, [state, reply]() {
-        state->cancelled = true;
-        reply->abort();
-    });
-    connect(reply, &QNetworkReply::readyRead, this, [reply, file]() {
-        file->write(reply->readAll());
-    });
-    connect(reply, &QNetworkReply::downloadProgress, this,
-            [dialog](qint64 received, qint64 total) {
-        if (total > 0) {
-            if (dialog->maximum() == 0)
-                dialog->setMaximum(100);
-            dialog->setValue(int(received * 100 / total));
-        } else {
-            dialog->setMaximum(0); // busy bar while the size is unknown
-        }
-        dialog->setLabelText(tr("Downloading... %1 MB received")
-                             .arg(received / 1048576.0, 0, 'f', 1));
-    });
-    connect(reply, &QNetworkReply::finished, this,
-            [this, reply, net, file, dialog, state, url, version,
-             filePath]() {
-        file->write(reply->readAll());
-        file->close();
-        const bool failed = reply->error() != QNetworkReply::NoError;
-        const qint64 size = QFileInfo(filePath).size();
-        dialog->close();
-        dialog->deleteLater();
-        reply->deleteLater();
-        net->deleteLater();
-        delete file;
-        if (state->cancelled) {
-            QFile::remove(filePath);
-            return; // the user changed their mind — stay silent
-        }
-        if (failed || size <= 0) {
-            QFile::remove(filePath);
-            QMessageBox::warning(
-                        this, tr("Update download"),
-                        tr("The download inside the app did not finish. "
-                           "The download page will open in your browser "
-                           "instead."));
-            QDesktopServices::openUrl(QUrl(url));
-            return;
-        }
-        QMessageBox::information(
-                        this, tr("Download complete"),
-                        tr("Dev by Sufyan v%1 is ready. The app will "
-                           "close now and the setup will open — your "
-                           "settings and files stay as they are.")
-                        .arg(version));
-        if (QProcess::startDetached(filePath, QStringList())) {
-            QApplication::quit();
-        } else {
-            QMessageBox::warning(
-                        this, tr("Update download"),
-                        tr("The setup was downloaded but could not be "
-                           "started. You can run it yourself:\n%1")
-                        .arg(filePath));
-        }
-    });
+    dbsFadeInWindow(dialog);  // Part 7 fade-in
+    dialog->startDownload();
 }
 
 // ---------------------------------------------------------------------------

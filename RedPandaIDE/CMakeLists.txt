@@ -13,6 +13,7 @@ set_target_properties(RedPandaIDE PROPERTIES
 target_qt_plain_cpp(RedPandaIDE
     src/rooms/mainwindow_rooms
     src/rooms/dbsfeatures
+    src/rooms/dbstheme
     src/autolinkmanager
     src/colorscheme
     src/customfileiconprovider
@@ -66,6 +67,8 @@ target_qt_plain_cpp(RedPandaIDE
 
 target_moc_classes(RedPandaIDE
     src/rooms/roomclient
+    src/rooms/dbsupdater
+    src/rooms/dbsfx
     src/rooms/roomspanel
     src/rooms/roomchatwindow
     src/rooms/welcomepage

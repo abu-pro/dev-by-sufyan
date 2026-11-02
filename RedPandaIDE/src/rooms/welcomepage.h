@@ -18,13 +18,17 @@
 #define ROOMS_WELCOMEPAGE_H
 
 #include <QColor>
+#include <QHash>
 #include <QPixmap>
+#include <QRectF>
+#include <QPointer>
 #include <QStringList>
 #include <QWidget>
 
 class QLabel;
 class QListWidget;
 class QPropertyAnimation;
+class QVariantAnimation;
 class QPushButton;
 class QTimer;
 
@@ -65,12 +69,22 @@ public:
     // empty) and the Continue Coding tile only exists when editors do.
     void setRecentFiles(const QStringList &files);
     void setContinueVisible(bool visible);
+    // v1.6.0 theme packs: show a pack's curated wallpapers instead
+    // of the classic set. A non-empty pinned path locks Home to that
+    // one wallpaper; clearThemeArtworks() restores the classic set.
+    void setThemeArtworks(const QStringList &paths,
+                          const QString &pinnedPath);
+    void clearThemeArtworks();
+    bool themeArtworksActive() const { return mThemeMode; }
 
     qreal fadeProgress() const { return mFadeProgress; }
     void setFadeProgress(qreal value);
     QColor accentColor() const { return mAccent; }
     void setAccentColor(const QColor &color);
 
+    // Face/head zone of the current artwork, in widget coords
+    // (empty when the artwork has no recorded face zone).
+    QRectF currentFaceRect() const;
 signals:
     void continueRequested();
     void newDocumentRequested();
@@ -80,6 +94,8 @@ signals:
     void roomsRequested();
     void themeRequested();
     void fontRequested();
+    // v1.6.0: the Customize Home tile was clicked.
+    void customizeHomeRequested();
     void recentFileRequested(const QString &filename);
 
 protected:
@@ -87,9 +103,20 @@ protected:
     void showEvent(QShowEvent *event) override;
     void hideEvent(QHideEvent *event) override;
     void resizeEvent(QResizeEvent *event) override;
+    // v1.6.0 Part 7: tile hover/press micro-animations.
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private:
     void loadArtworks();
+    // v1.6.0: (re)applies the current theme-artwork set right away.
+    void refreshThemeArt();
+    // Part 7: per-tile hover glow (0 = rest, 1 = fully lit). The
+    // glow replaces the old instant :hover swap with a 140 ms fade
+    // of the tile's border and background depth.
+    QString tileStyleSheet(qreal glow) const;
+    void setTileGlow(QPushButton *tile, qreal glow);
+    void animateTileGlow(QPushButton *tile, qreal target,
+                         int durationMs);
     void showArtwork(int index, bool fade);
     void rebuildCoverCache();
     QPixmap coverFor(const QPixmap &source, const QPointF &anchor) const;
@@ -98,6 +125,8 @@ private:
 
     QLabel *mLogoLabel = nullptr;
     QLabel *mTitleLabel = nullptr;
+    // GTA-style wordmark is painted over this empty band.
+    QWidget *mWordmarkBand = nullptr;
     QLabel *mVersionLabel = nullptr;
     QLabel *mUpdateLabel = nullptr;
     QLabel *mHotkeysLabel = nullptr;
@@ -106,15 +135,22 @@ private:
     QPushButton *mContinueTile = nullptr;
     QWidget *mContent = nullptr;
     QList<QPushButton *> mTiles;
+    // Part 7: current hover glow per tile + running glow animations.
+    QHash<QPushButton *, qreal> mTileGlow;
+    QHash<QPushButton *, QPointer<QVariantAnimation>> mTileAnims;
     QWidgetList mAnimatables;
 
     QStringList mArtFiles; // resource paths (":/...") or disk paths
+    // v1.6.0: true while a theme pack's artworks replace the
+    // classic set (the classic per-launch index is skipped then).
+    bool mThemeMode = false;
     int mArtIndex = 0;
     QPixmap mCurrentSource;
     QPixmap mPreviousSource;
     QPixmap mCurrentCover;
     QPixmap mPreviousCover;
     QPointF mCurrentAnchor{0.5, 0.4};
+    QRectF mCurrentFaceRect;
     QPointF mPreviousAnchor{0.5, 0.4};
     bool mTextRight = false;
     qreal mFadeProgress = 1.0;

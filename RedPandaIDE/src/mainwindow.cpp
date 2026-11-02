@@ -956,6 +956,13 @@ void MainWindow::refreshIconTint()
         tint = QColor{"#FF7A18"};
     else if (scheme == QStringLiteral("Luffy Gear 5"))
         tint = QColor{"#DCEEFF"};
+    // v1.6.0 theme packs: their schemes tint the icons too.
+    else if (scheme == QStringLiteral("Demon Slayer"))
+        tint = QColor{"#FFC21C"};
+    else if (scheme == QStringLiteral("Dragon Ball"))
+        tint = QColor{"#FFB300"};
+    else if (scheme == QStringLiteral("My Hero Academia"))
+        tint = QColor{"#35D07F"};
     if (mIconsManager->iconTint() == tint)
         return;
     mIconsManager->setIconTint(tint);
