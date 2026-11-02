@@ -60,8 +60,32 @@ GitRepository *CustomFileIconProvider::VCSRepository() const
 }
 #endif
 
+void CustomFileIconProvider::setDbsPackIcons(
+        const QString &folder, const QString &cppFile,
+        const QString &hFile, const QString &cFile,
+        const QString &pyFile, const QString &genericFile)
+{
+    mDbsFolderIcon = QIcon(folder);
+    mDbsCppIcon = QIcon(cppFile);
+    mDbsHIcon = QIcon(hFile);
+    mDbsCIcon = QIcon(cFile);
+    mDbsPyIcon = QIcon(pyFile);
+    mDbsGenericIcon = QIcon(genericFile);
+    mDbsPackIconsActive = true;
+}
+
+void CustomFileIconProvider::clearDbsPackIcons()
+{
+    mDbsPackIconsActive = false;
+    mDbsFolderIcon = mDbsCppIcon = mDbsHIcon = mDbsCIcon =
+        mDbsPyIcon = mDbsGenericIcon = QIcon();
+}
+
 QIcon CustomFileIconProvider::icon(IconType type) const
 {
+    if (type == IconType::Folder && mDbsPackIconsActive
+            && !mDbsFolderIcon.isNull())
+        return mDbsFolderIcon;
     if (type == IconType::Folder) {
         QIcon icon = mIconsManager->getIcon(IconsManager::FILESYSTEM_FOLDER);
         if (!icon.isNull())
@@ -73,6 +97,26 @@ QIcon CustomFileIconProvider::icon(IconType type) const
 
 QIcon CustomFileIconProvider::icon(const QFileInfo &info) const
 {
+    // Dev by Sufyan: an active theme pack's icons win over the
+    // stock set (folders, and files by kind).
+    if (mDbsPackIconsActive) {
+        if (info.isDir()) {
+            if (!mDbsFolderIcon.isNull())
+                return mDbsFolderIcon;
+        } else if (info.isFile()) {
+            if (isHFile(info.fileName()) && !mDbsHIcon.isNull())
+                return mDbsHIcon;
+            if (isCppFile(info.fileName()) && !mDbsCppIcon.isNull())
+                return mDbsCppIcon;
+            if (isCFile(info.fileName()) && !mDbsCIcon.isNull())
+                return mDbsCIcon;
+            if (info.suffix() == QStringLiteral("py")
+                    && !mDbsPyIcon.isNull())
+                return mDbsPyIcon;
+            if (!mDbsGenericIcon.isNull())
+                return mDbsGenericIcon;
+        }
+    }
     QIcon icon;
     if (info.isDir()) {
 #ifdef ENABLE_VCS

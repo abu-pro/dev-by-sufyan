@@ -14,11 +14,9 @@
 #include <QString>
 #include <QStringList>
 #include <QVector>
+#include <QHash>
 
 class QWidget;
-
-// Ambient effect families, one per pack (see dbsfx.h).
-enum class DbsFxKind { None = 0, DemonSlayer, DragonBall, Mha };
 
 struct DbsThemePack {
     QString id;              // "demonslayer" | "dragonball" | "mha"
@@ -28,10 +26,24 @@ struct DbsThemePack {
     QStringList wallpapers;  // Qt resource paths, hero wallpaper first
     QString loadingArt;      // Qt resource path (may repeat a wallpaper)
     QString iconPath;        // Qt resource path, may be empty
-    DbsFxKind fxKind = DbsFxKind::None;
+    // User-supplied icon-pack wiring (v1.6.1): Explorer icons by
+    // file kind + Home tile leading icons by tile id, all Qt
+    // resource paths; empty means "keep the stock icons".
+    QString explorerFolder;
+    QString explorerFileCpp;
+    QString explorerFileH;
+    QString explorerFileC;
+    QString explorerFilePy;
+    QString explorerFileGeneric;
+    QHash<QString, QString> tileIcons;  // "new" -> App Icon path
 };
 
 const QVector<DbsThemePack> &dbsThemePacks();
+// The pack in effect for a cold start: the saved pack, else the
+// pack whose scheme is in use, else nullptr for the classic anime
+// schemes / a deliberately saved scheme, else the Normal theme —
+// the v1.6.1 default when no theme choice exists at all.
+const DbsThemePack *dbsResolvedPack(const QString &schemeName);
 const DbsThemePack *dbsThemePackById(const QString &id);
 const DbsThemePack *dbsPackForScheme(const QString &schemeName);
 
@@ -43,8 +55,6 @@ void dbsSetActivePackId(const QString &id);
 // built-in welcome artworks when no pack is active.
 QString dbsPinnedHomeArt(const QString &packId);
 void dbsSetPinnedHomeArt(const QString &packId, const QString &path);
-bool dbsSpecialEffectsEnabled();  // default: on
-void dbsSetSpecialEffectsEnabled(bool on);
 bool dbsAnimationsEnabled();  // v1.6.0 Part 7, default: on
 void dbsSetAnimationsEnabled(bool on);
 

@@ -24,6 +24,22 @@ const QVector<DbsThemePack> &dbsThemePacks()
 {
     static const QVector<DbsThemePack> packs = {
         {
+            // v1.6.1 Part 10: the Normal theme — clean, professional,
+            // non-anime. No wallpapers and no loading art on purpose:
+            // Home and the splash run the animated "Dev by Sufyan"
+            // brand scene instead (see dbsfx / welcomepage).
+            QStringLiteral("normal"),
+            QStringLiteral("Normal"),
+            QStringLiteral("Normal"),
+            QColor(QStringLiteral("#E5484D")),
+            {},
+            QString(),
+            QString(),
+            QString(), QString(), QString(), QString(), QString(),
+            QString(),
+            {},
+        },
+        {
             QStringLiteral("demonslayer"),
             QStringLiteral("Demon Slayer"),
             QStringLiteral("Demon Slayer"),
@@ -41,7 +57,13 @@ const QVector<DbsThemePack> &dbsThemePacks()
             kThemesDir
                 + QStringLiteral("/demonslayer/theme-ds-loading.jpg"),
             kThemesDir + QStringLiteral("/demonslayer/icon.png"),
-            DbsFxKind::DemonSlayer,
+            QStringLiteral(":/icons/images/themes/demonslayer/icons/folder.png"),
+            QStringLiteral(":/icons/images/themes/demonslayer/icons/file-cpp.png"),
+            QStringLiteral(":/icons/images/themes/demonslayer/icons/file-h.png"),
+            QStringLiteral(":/icons/images/themes/demonslayer/icons/file-c.png"),
+            QStringLiteral(":/icons/images/themes/demonslayer/icons/file-py.png"),
+            QStringLiteral(":/icons/images/themes/demonslayer/icons/file-generic.png"),
+            {{QStringLiteral("new"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-new.png")}, {QStringLiteral("open"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-open.png")}, {QStringLiteral("project"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-project.png")}, {QStringLiteral("continue"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-continue.png")}, {QStringLiteral("rooms"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-rooms.png")}, {QStringLiteral("font"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-font.png")}, {QStringLiteral("templates"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-templates.png")}, {QStringLiteral("theme"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-theme.png")}},
         },
         {
             QStringLiteral("dragonball"),
@@ -57,7 +79,13 @@ const QVector<DbsThemePack> &dbsThemePacks()
             kThemesDir
                 + QStringLiteral("/dragonball/theme-db-loading.jpg"),
             kThemesDir + QStringLiteral("/dragonball/icon.png"),
-            DbsFxKind::DragonBall,
+            QStringLiteral(":/icons/images/themes/dragonball/icons/folder.png"),
+            QStringLiteral(":/icons/images/themes/dragonball/icons/file-cpp.png"),
+            QStringLiteral(":/icons/images/themes/dragonball/icons/file-h.png"),
+            QStringLiteral(":/icons/images/themes/dragonball/icons/file-c.png"),
+            QStringLiteral(":/icons/images/themes/dragonball/icons/file-py.png"),
+            QStringLiteral(":/icons/images/themes/dragonball/icons/file-generic.png"),
+            {{QStringLiteral("new"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-new.png")}, {QStringLiteral("open"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-open.png")}, {QStringLiteral("project"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-project.png")}, {QStringLiteral("continue"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-continue.png")}, {QStringLiteral("rooms"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-rooms.png")}, {QStringLiteral("font"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-font.png")}, {QStringLiteral("templates"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-templates.png")}, {QStringLiteral("theme"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-theme.png")}},
         },
         {
             QStringLiteral("mha"),
@@ -75,7 +103,9 @@ const QVector<DbsThemePack> &dbsThemePacks()
             // The All Might manga poster doubles as loading art.
             kThemesDir + QStringLiteral("/mha/theme-mha-02.jpg"),
             QString(),
-            DbsFxKind::Mha,
+            QString(), QString(), QString(), QString(), QString(),
+            QString(),
+            {},
         },
     };
     return packs;
@@ -96,6 +126,29 @@ const DbsThemePack *dbsPackForScheme(const QString &schemeName)
     for (const DbsThemePack &pack : dbsThemePacks())
         if (pack.schemeName == schemeName)
             return &pack;
+    return nullptr;
+}
+
+
+const DbsThemePack *dbsResolvedPack(const QString &schemeName)
+{
+    if (const DbsThemePack *pack = dbsThemePackById(dbsActivePackId()))
+        return pack;
+    if (const DbsThemePack *pack = dbsPackForScheme(schemeName))
+        return pack;
+    // The Normal theme is the default only when no theme choice
+    // exists at all: the packs store has never recorded one (the
+    // key is written on every apply, so its absence means the
+    // user has never run the theme system or picked anything).
+    // Note the editor scheme cannot decide this — the upstream
+    // first-run wizard itself assigns one ("VS Code") before the
+    // user has chosen anything.
+    QSettings settings(QStringLiteral("DevBySufyan"),
+                       QStringLiteral("Dev by Sufyan"));
+    if (!settings.contains(QStringLiteral("dbs/themePack")))
+        return dbsThemePackById(QStringLiteral("normal"));
+    // A recorded-but-empty choice (Classic picked, or a scheme
+    // chosen on purpose) stands: keep the classic experience.
     return nullptr;
 }
 
@@ -135,22 +188,6 @@ void dbsSetPinnedHomeArt(const QString &packId, const QString &path)
     QSettings settings(QStringLiteral("DevBySufyan"),
                        QStringLiteral("Dev by Sufyan"));
     settings.setValue(QStringLiteral("dbs/homeArt/") + packId, path);
-}
-
-bool dbsSpecialEffectsEnabled()
-{
-    QSettings settings(QStringLiteral("DevBySufyan"),
-                       QStringLiteral("Dev by Sufyan"));
-    return settings
-        .value(QStringLiteral("dbs/specialEffects"), true)
-        .toBool();
-}
-
-void dbsSetSpecialEffectsEnabled(bool on)
-{
-    QSettings settings(QStringLiteral("DevBySufyan"),
-                       QStringLiteral("Dev by Sufyan"));
-    settings.setValue(QStringLiteral("dbs/specialEffects"), on);
 }
 
 bool dbsAnimationsEnabled()

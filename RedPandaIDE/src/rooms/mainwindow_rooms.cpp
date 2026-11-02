@@ -39,6 +39,7 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTimer>
+#include <QMessageBox>
 #include <QToolBar>
 
 #include "../editor.h"
@@ -1704,11 +1705,11 @@ void MainWindow::setupDbsThemes()
             // midpoint applies the LATEST requested pack, so a
             // second click during the fade is never overridden by
             // the first click's captured choice.
-            if (mEffectsOverlay && dbsAnimationsEnabled()
+            if (mVeil && dbsAnimationsEnabled()
                     && id != mAppliedPackId) {
                 mVeilPackId = id;
                 mVeilPackSet = true;
-                mEffectsOverlay->fadeThrough([this]() {
+                mVeil->fadeThrough([this]() {
                     if (mVeilPackSet) {
                         const QString pid = mVeilPackId;
                         mVeilPackSet = false;
@@ -1722,22 +1723,23 @@ void MainWindow::setupDbsThemes()
         });
         return action;
     };
+    // v1.6.1: Normal leads the list (it is the default theme);
+    // Classic and the anime packs follow.
+    if (const DbsThemePack *normal =
+            dbsThemePackById(QStringLiteral("normal")))
+        addPackAction(normal->name, normal->id, QIcon());
     addPackAction(tr("Classic (no pack)"), QString(), QIcon());
-    for (const DbsThemePack &pack : dbsThemePacks())
+    for (const DbsThemePack &pack : dbsThemePacks()) {
+        if (pack.id == QStringLiteral("normal"))
+            continue;
         addPackAction(pack.name, pack.id,
                       pack.iconPath.isEmpty()
                           ? QIcon()
                           : QIcon(pack.iconPath));
+    }
     themesMenu->addSeparator();
     themesMenu->addAction(tr("Customize Home..."), this,
                           &MainWindow::openCustomizeHome);
-    mEffectsAction = themesMenu->addAction(tr("Special Effects"));
-    mEffectsAction->setCheckable(true);
-    mEffectsAction->setChecked(dbsSpecialEffectsEnabled());
-    connect(mEffectsAction, &QAction::toggled, this, [this](bool on) {
-        dbsSetSpecialEffectsEnabled(on);
-        refreshDbsEffects();
-    });
     // v1.6.0 Part 7: the Animations toggle (veil transitions, tile
     // hover glow, window/menu fades). Default on, like effects.
     QAction *animationsAction =
@@ -1766,8 +1768,6 @@ void MainWindow::setupDbsThemes()
             if (action->isCheckable() && action->data().isValid())
                 action->setChecked(action->data().toString()
                                    == mAppliedPackId);
-        if (mEffectsAction)
-            mEffectsAction->setChecked(dbsSpecialEffectsEnabled());
     });
     ui->menubar->insertMenu(ui->menuHelp->menuAction(), themesMenu);
 
@@ -1780,37 +1780,19 @@ void MainWindow::setupDbsThemes()
     connect(ui->EditorTabsRight, &QTabWidget::currentChanged,
             this, [this]() { dbsRefreshHomeFullscreen(); });
 
-    // The effects overlay floats above the whole main window.
-    mEffectsOverlay = new DbsEffectsOverlay(this);
-    mEffectsOverlay->setRoomsRectProvider([this]() -> QRect {
-        if (!mRoomsDock || !mRoomsDock->isVisible())
-            return QRect();
-        return QRect(mRoomsDock->mapTo(this, QPoint(0, 0)),
-                     mRoomsDock->size());
-    });
-    // Part 6 (corrected): the toolbar strip anchors the "toolbox"
-    // technique streaks (Thunder Breathing and friends). The
-    // toolbar list is captured once; the provider unions the
-    // visible horizontal toolbars.
-    const QList<QToolBar *> toolbars = findChildren<QToolBar *>();
-    mEffectsOverlay->setToolbarRectProvider(
-        [this, toolbars]() -> QRect {
-        QRect r;
-        for (QToolBar *tb : toolbars) {
-            if (tb->isVisible() && tb->orientation() == Qt::Horizontal)
-                r = r.united(QRect(tb->mapTo(this, QPoint(0, 0)),
-                                   tb->size()));
-        }
-        return r;
-    });
-    mEffectsOverlay->setFxEnabled(dbsSpecialEffectsEnabled());
+    // The Part 7 transition veil floats above the whole main
+    // window (it paints nothing but the fade veil itself).
+    mVeil = new DbsVeil(this);
 
     // Starting pack: the saved one; otherwise the pack whose editor
     // scheme is already in use (e.g. chosen via Appearance earlier).
     QString packId = dbsActivePackId();
     if (packId.isEmpty() && pSettings) {
+        // Saved pack, else the pack of the scheme in use, else —
+        // when no theme choice exists at all — the Normal default
+        // (dbsResolvedPack holds the exact rule).
         if (const DbsThemePack *pack =
-                dbsPackForScheme(pSettings->editor().colorScheme()))
+                dbsResolvedPack(pSettings->editor().colorScheme()))
             packId = pack->id;
     }
     applyDbsThemePack(packId, false);
@@ -1837,7 +1819,14 @@ void MainWindow::applyDbsThemePack(const QString &packId,
         updateEditorColorSchemes();
     }
     if (mWelcomePage) {
-        if (pack) {
+        const bool normal = pack
+            && pack->id == QStringLiteral("normal");
+        mWelcomePage->setBrandMode(normal);
+        mWelcomePage->setTileIconPack(
+            pack ? pack->tileIcons : QHash<QString, QString>());
+        if (normal) {
+            // Brand scene instead of artworks (the pack has none).
+        } else if (pack) {
             mWelcomePage->setThemeArtworks(
                 pack->wallpapers, dbsPinnedHomeArt(pack->id));
         } else {
@@ -1849,13 +1838,28 @@ void MainWindow::applyDbsThemePack(const QString &packId,
                 mWelcomePage->clearThemeArtworks();
         }
     }
+    if (mFileSystemModelIconProvider) {
+        if (pack && !pack->explorerFolder.isEmpty())
+            mFileSystemModelIconProvider->setDbsPackIcons(
+                pack->explorerFolder, pack->explorerFileCpp,
+                pack->explorerFileH, pack->explorerFileC,
+                pack->explorerFilePy, pack->explorerFileGeneric);
+        else
+            mFileSystemModelIconProvider->clearDbsPackIcons();
+    }
     updateDbsBackdrop();
-    refreshDbsEffects();
 }
 
 void MainWindow::openCustomizeHome()
 {
     const DbsThemePack *pack = dbsThemePackById(mAppliedPackId);
+    if (pack && pack->wallpapers.isEmpty()) {
+        QMessageBox::information(
+            this, tr("Customize Home"),
+            tr("The Normal theme's Home is the animated Dev by "
+               "Sufyan brand scene - there is no wallpaper to pick."));
+        return;
+    }
     if (dbsShowCustomizeHomeDialog(this, pack))
         applyDbsThemePack(mAppliedPackId, false);
 }
@@ -1868,7 +1872,7 @@ void MainWindow::updateDbsBackdrop()
         ui->EditorTabsRight,
     };
     const DbsThemePack *pack = dbsThemePackById(mAppliedPackId);
-    if (!pack) {
+    if (!pack || pack->wallpapers.isEmpty()) {
         for (QWidget *widget : targets) {
             if (widget && mBackdropSaved.contains(widget)) {
                 widget->setPalette(mBackdropSaved.value(widget));
@@ -1922,15 +1926,6 @@ void MainWindow::updateDbsBackdrop()
     }
 }
 
-void MainWindow::refreshDbsEffects()
-{
-    if (!mEffectsOverlay)
-        return;
-    const DbsThemePack *pack = dbsThemePackById(mAppliedPackId);
-    mEffectsOverlay->setFxKind(pack ? pack->fxKind : DbsFxKind::None);
-    mEffectsOverlay->setFxEnabled(dbsSpecialEffectsEnabled());
-}
-
 void MainWindow::dbsRefreshHomeFullscreen()
 {
     if (!mWelcomePage)
@@ -1951,12 +1946,12 @@ void MainWindow::dbsRefreshHomeFullscreen()
         hostTabs->currentWidget() == mWelcomePage && !otherHasEditor;
     if (wantFullscreen == mHomeFullscreen)
         return;
-    // Part 7: the layout switch fades through the effects veil —
+    // Part 7: the layout switch fades through the veil —
     // the old view darkens briefly, the chrome toggles under cover,
     // and the new view is revealed. No veil (or animations off)
     // applies the switch immediately.
-    if (mEffectsOverlay && dbsAnimationsEnabled() && !mVeilRefresh) {
-        mEffectsOverlay->fadeThrough([this]() {
+    if (mVeil && dbsAnimationsEnabled() && !mVeilRefresh) {
+        mVeil->fadeThrough([this]() {
             // Recompute at midpoint time: a file may have opened
             // (or closed) since this transition was scheduled —
             // applying the captured decision would strand the
@@ -1968,25 +1963,6 @@ void MainWindow::dbsRefreshHomeFullscreen()
     } else {
         dbsApplyHomeFullscreen(wantFullscreen);
     }
-}
-
-void MainWindow::dbsUpdateFaceAvoid()
-{
-    if (!mEffectsOverlay)
-        return;
-    if (!mHomeFullscreen || !mWelcomePage) {
-        mEffectsOverlay->setAvoidRect({});
-        return;
-    }
-    const QRectF fr = mWelcomePage->currentFaceRect();
-    if (fr.isEmpty()) {
-        mEffectsOverlay->setAvoidRect({});
-        return;
-    }
-    const QPoint tl = mWelcomePage->mapTo(this, fr.topLeft().toPoint());
-    const QPoint br =
-        mWelcomePage->mapTo(this, fr.bottomRight().toPoint());
-    mEffectsOverlay->setAvoidRect(QRect(tl, br).normalized());
 }
 
 void MainWindow::dbsApplyHomeFullscreen(bool fullscreen)
@@ -2016,17 +1992,6 @@ void MainWindow::dbsApplyHomeFullscreen(bool fullscreen)
         }
         mStatusBarWasVisible = statusBar()->isVisible();
         statusBar()->hide();
-        // Face avoidance: the effects overlay now keeps every
-        // streak out of the Home artwork's face zone. The art can
-        // rotate while Home is up, so re-sync on a slow timer.
-        if (!mFaceAvoidTimer) {
-            mFaceAvoidTimer = new QTimer(this);
-            mFaceAvoidTimer->setInterval(800);
-            connect(mFaceAvoidTimer, &QTimer::timeout, this,
-                    [this]() { dbsUpdateFaceAvoid(); });
-        }
-        dbsUpdateFaceAvoid();
-        mFaceAvoidTimer->start();
     } else {
         // Back to the IDE: restore exactly what was visible before.
         mHomeFullscreen = false;
@@ -2036,10 +2001,6 @@ void MainWindow::dbsApplyHomeFullscreen(bool fullscreen)
                 it.key()->setVisible(it.value());
         mChromeSaved.clear();
         statusBar()->setVisible(mStatusBarWasVisible);
-        if (mFaceAvoidTimer)
-            mFaceAvoidTimer->stop();
-        if (mEffectsOverlay)
-            mEffectsOverlay->setAvoidRect({});
     }
 }
 

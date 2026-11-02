@@ -16,6 +16,8 @@
  */
 #include "welcomepage.h"
 
+#include <cmath>
+
 #include <QCoreApplication>
 #include <QDir>
 #include <QEasingCurve>
@@ -192,6 +194,17 @@ WelcomePage::WelcomePage(QWidget *parent) :
     // theme set Home shows (the Themes menu has the same option).
     auto *customizeTile = makeTile(tr("Customize Home"),
                                    tr("Pick the Home wallpaper"));
+    // v1.6.1: stable ids so theme packs can dress the tiles with
+    // their App Icons (see setTileIconPack).
+    newDocTile->setProperty("dbsTileId", QStringLiteral("new"));
+    openDocTile->setProperty("dbsTileId", QStringLiteral("open"));
+    newProjectTile->setProperty("dbsTileId", QStringLiteral("project"));
+    roomsTile->setProperty("dbsTileId", QStringLiteral("rooms"));
+    themeTile->setProperty("dbsTileId", QStringLiteral("theme"));
+    fontTile->setProperty("dbsTileId", QStringLiteral("font"));
+    templatesTile->setProperty("dbsTileId", QStringLiteral("templates"));
+    continueTile->setProperty("dbsTileId", QStringLiteral("continue"));
+    customizeTile->setProperty("dbsTileId", QStringLiteral("customize"));
     tiles->addWidget(newDocTile, 0, 0);
     tiles->addWidget(openDocTile, 0, 1);
     tiles->addWidget(newProjectTile, 1, 0);
@@ -416,30 +429,6 @@ void WelcomePage::loadArtworks()
     }
 }
 
-QRectF WelcomePage::currentFaceRect() const
-{
-    // Map the source-space face box through the same cover
-    // transform coverFor() applies, into widget coordinates.
-    if (mCurrentFaceRect.isEmpty() || mCurrentSource.isNull()
-            || width() < 10 || height() < 10)
-        return {};
-    const QSize target = size();
-    QPixmap cover = mCurrentSource.scaled(
-        target, Qt::KeepAspectRatioByExpanding, Qt::SmoothTransformation);
-    const int cx = qBound(0, int((cover.width() - target.width())
-                                 * mCurrentAnchor.x()),
-                          cover.width() - target.width());
-    const int cy = qBound(0, int((cover.height() - target.height())
-                                 * mCurrentAnchor.y()),
-                          cover.height() - target.height());
-    const qreal sx = qreal(cover.width()) / mCurrentSource.width();
-    const qreal sy = qreal(cover.height()) / mCurrentSource.height();
-    return {mCurrentFaceRect.left() * mCurrentSource.width() * sx - cx,
-            mCurrentFaceRect.top() * mCurrentSource.height() * sy - cy,
-            mCurrentFaceRect.width() * mCurrentSource.width() * sx,
-            mCurrentFaceRect.height() * mCurrentSource.height() * sy};
-}
-
 QPixmap WelcomePage::coverFor(const QPixmap &source,
                               const QPointF &anchor) const
 {
@@ -526,6 +515,18 @@ void WelcomePage::paintEvent(QPaintEvent *event)
     Q_UNUSED(event);
     QPainter painter{this};
     painter.fillRect(rect(), QColor{0x0d, 0x0f, 0x13});
+    if (mBrandMode) {
+        // Normal theme: the animated brand scene is the whole
+        // background; only the wordmark band below is shared.
+        paintBrandBackground(painter);
+        if (mWordmarkBand) {
+            const QRect band{mWordmarkBand->mapTo(this, QPoint{0, 0}),
+                             mWordmarkBand->size()};
+            dbsPaintWordmark(painter, QRectF{band},
+                             QStringLiteral("Dev by Sufyan"), mAccent);
+        }
+        return;
+    }
     if (!mPreviousCover.isNull() && mFadeProgress < 1.0) {
         painter.drawPixmap(0, 0, mPreviousCover);
         painter.setOpacity(mFadeProgress);
@@ -569,6 +570,102 @@ void WelcomePage::paintEvent(QPaintEvent *event)
                          mWordmarkBand->size()};
         dbsPaintWordmark(painter, QRectF{band},
                          QStringLiteral("Dev by Sufyan"), mAccent);
+    }
+}
+
+void WelcomePage::setTileIconPack(const QHash<QString, QString> &icons)
+{
+    for (QPushButton *tile : mTiles) {
+        const QString path =
+            icons.value(tile->property("dbsTileId").toString());
+        if (!path.isEmpty()) {
+            tile->setIcon(QIcon(path));
+            tile->setIconSize(QSize(30, 30));
+        } else {
+            tile->setIcon(QIcon());
+        }
+    }
+}
+
+void WelcomePage::setBrandMode(bool on)
+{
+    if (mBrandMode == on) {
+        if (on)
+            update();
+        return;
+    }
+    mBrandMode = on;
+    if (on) {
+        // The brand scene has no artwork to take an accent from:
+        // use the Normal pack's red directly.
+        if (const DbsThemePack *normal =
+                dbsThemePackById(QStringLiteral("normal")))
+            setAccentColor(normal->accent);
+        mCurrentCover = QPixmap();
+        mPreviousCover = QPixmap();
+        mBrandClock.start();
+        if (!mBrandTimer) {
+            mBrandTimer = new QTimer(this);
+            mBrandTimer->setInterval(50);
+            connect(mBrandTimer, &QTimer::timeout, this, [this]() {
+                if (mBrandMode && isVisible() && dbsAnimationsEnabled())
+                    update();
+            });
+        }
+        mBrandTimer->start();
+    } else if (mBrandTimer) {
+        mBrandTimer->stop();
+    }
+    update();
+}
+
+void WelcomePage::paintBrandBackground(QPainter &painter)
+{
+    const QRectF full(rect());
+    const qreal t = mBrandClock.isValid()
+                        ? mBrandClock.elapsed() / 1000.0
+                        : 0.0;
+    // Living slate gradient with a slow red sheen drifting across.
+    QLinearGradient grad(0, 0, full.width(), full.height());
+    grad.setColorAt(0.0, QColor(QStringLiteral("#262B36")));
+    grad.setColorAt(0.55, QColor(QStringLiteral("#161A21")));
+    grad.setColorAt(1.0, QColor(QStringLiteral("#1F242E")));
+    painter.fillRect(full, grad);
+    const qreal drift = 0.5 + 0.5 * std::sin(t * 0.35);
+    const QPointF glowC(full.width() * (0.60 + 0.12 * drift),
+                        full.height() * 0.28);
+    QRadialGradient glow(glowC, full.width() * 0.45);
+    glow.setColorAt(0.0, QColor(mAccent.red(), mAccent.green(),
+                                mAccent.blue(), 36));
+    glow.setColorAt(1.0, QColor(mAccent.red(), mAccent.green(),
+                                mAccent.blue(), 0));
+    painter.fillRect(full, glow);
+    // Giant, barely-there </> watermark breathing on the empty side.
+    {
+        QFont f(QStringLiteral("Inter"));
+        f.setWeight(QFont::Black);
+        f.setPointSizeF(full.height() * 0.52);
+        painter.setFont(f);
+        const int a = int(8 + 4 * (0.5 + 0.5 * std::sin(t * 0.5)));
+        painter.setPen(QColor(255, 255, 255, a));
+        painter.drawText(QRectF(full.width() * 0.44, full.height() * 0.16,
+                                full.width() * 0.54, full.height() * 0.68),
+                         Qt::AlignCenter, QStringLiteral("</>"));
+    }
+    // The </> mark above the wordmark, pulsing gently in the accent.
+    if (mWordmarkBand) {
+        const QRect band{mWordmarkBand->mapTo(this, QPoint{0, 0}),
+                         mWordmarkBand->size()};
+        QFont f(QStringLiteral("Inter"));
+        f.setWeight(QFont::Black);
+        f.setPointSizeF(44);
+        painter.setFont(f);
+        const int a = int(165 + 75 * (0.5 + 0.5 * std::sin(t * 1.9)));
+        painter.setPen(QColor(mAccent.red(), mAccent.green(),
+                              mAccent.blue(), a));
+        painter.drawText(QRectF(band.left(), band.top() - 86, 170, 64),
+                         Qt::AlignLeft | Qt::AlignVCenter,
+                         QStringLiteral("</>"));
     }
 }
 

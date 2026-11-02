@@ -30,11 +30,21 @@ public:
     ~CustomFileIconProvider();
     void setRootFolder(const QString& folder);
     void update();
+    // Dev by Sufyan theme packs (v1.6.1): while set, Explorer
+    // folder/file icons come from the active pack's user-supplied
+    // icon set instead of the stock icon theme.
+    void setDbsPackIcons(const QString &folder, const QString &cppFile,
+                         const QString &hFile, const QString &cFile,
+                         const QString &pyFile, const QString &genericFile);
+    void clearDbsPackIcons();
 private:
 #ifdef ENABLE_VCS
     GitRepository* mVCSRepository;
 #endif
     IconsManager *mIconsManager;
+    QIcon mDbsFolderIcon, mDbsCppIcon, mDbsHIcon, mDbsCIcon,
+          mDbsPyIcon, mDbsGenericIcon;
+    bool mDbsPackIconsActive = false;
     // QFileIconProvider interface
 public:
     QIcon icon(IconType type) const override;

@@ -400,7 +400,6 @@ private:
     void applyDbsThemePack(const QString &packId, bool updateScheme);
     void openCustomizeHome();
     void updateDbsBackdrop();
-    void refreshDbsEffects();
     // Shows/hides the IDE chrome so Home can own the whole window.
     void dbsRefreshHomeFullscreen();
     // Part 7: the actual chrome toggle (runs under the veil when
@@ -412,8 +411,6 @@ private:
     // its target at midpoint time (the world may have moved on).
     bool mVeilRefresh = false;
     // Face avoidance for the effects overlay on fullscreen Home.
-    void dbsUpdateFaceAvoid();
-    class QTimer *mFaceAvoidTimer = nullptr;
     bool mVeilPackSet = false;
     QString mVeilPackId;
     // v1.3.0: Messages popup, member restriction, welcome page
@@ -1072,8 +1069,7 @@ private:
     QString mDbsRecheckFilename;
     QString mDbsRecheckDescription;
     // v1.6.0: theme packs + full-screen Home state
-    class DbsEffectsOverlay *mEffectsOverlay = nullptr;
-    QAction *mEffectsAction = nullptr;
+    class DbsVeil *mVeil = nullptr;
     QString mAppliedPackId;
     bool mHomeFullscreen = false;
     bool mStatusBarWasVisible = true;

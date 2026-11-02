@@ -19,6 +19,7 @@
 
 #include <QColor>
 #include <QHash>
+#include <QElapsedTimer>
 #include <QPixmap>
 #include <QRectF>
 #include <QPointer>
@@ -72,6 +73,12 @@ public:
     // v1.6.0 theme packs: show a pack's curated wallpapers instead
     // of the classic set. A non-empty pinned path locks Home to that
     // one wallpaper; clearThemeArtworks() restores the classic set.
+    // v1.6.1 icons part: leading icons for the Home tiles from
+    // the active pack's App Icons (empty map clears them).
+    void setTileIconPack(const QHash<QString, QString> &icons);
+    // v1.6.1 Part 10: the Normal theme's animated brand scene
+    // replaces the artwork background on Home.
+    void setBrandMode(bool on);
     void setThemeArtworks(const QStringList &paths,
                           const QString &pinnedPath);
     void clearThemeArtworks();
@@ -84,7 +91,6 @@ public:
 
     // Face/head zone of the current artwork, in widget coords
     // (empty when the artwork has no recorded face zone).
-    QRectF currentFaceRect() const;
 signals:
     void continueRequested();
     void newDocumentRequested();
@@ -120,6 +126,7 @@ private:
     void showArtwork(int index, bool fade);
     void rebuildCoverCache();
     QPixmap coverFor(const QPixmap &source, const QPointF &anchor) const;
+    void paintBrandBackground(QPainter &painter);
     void applyAccentStyles();
     void startEntranceAnimation();
 
@@ -156,6 +163,9 @@ private:
     qreal mFadeProgress = 1.0;
     QColor mAccent{224, 35, 35};
     QTimer *mRotateTimer = nullptr;
+    bool mBrandMode = false;
+    QTimer *mBrandTimer = nullptr;
+    QElapsedTimer mBrandClock;
     QPropertyAnimation *mFadeAnim = nullptr;
     QPropertyAnimation *mAccentAnim = nullptr;
 };
