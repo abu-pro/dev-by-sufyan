@@ -1170,13 +1170,13 @@ bool dbsReplaceNameOnLine(const PCompileIssue &issue, const QStringList &lines,
     QVector<int> starts;
     QRegularExpressionMatchIterator it = re.globalMatch(line);
     while (it.hasNext())
-        starts.append(it.next().capturedStart());
+        starts.append(int(it.next().capturedStart()));
     if (starts.isEmpty())
         return false;
-    const int near = qMax(0, issue->column);
+    const int nearCol = qMax(0, issue->column);
     int best = starts.first();
     for (int s : starts)
-        if (qAbs(s - near) < qAbs(best - near))
+        if (qAbs(s - nearCol) < qAbs(best - nearCol))
             best = s;
     out.valid = true;
     out.insertLine = false;
@@ -1621,7 +1621,7 @@ bool MainWindow::dbsApplyFixToEditor(const PCompileIssue &issue,
         } else {
             const int last = editor->lineCount() - 1;
             editor->setCaretXY(QSynedit::CharPos{
-                                   editor->lineText(last).length(), last});
+                                   int(editor->lineText(last).length()), last});
             editor->setSelText("\n" + fix.newLineText);
         }
     } else {
