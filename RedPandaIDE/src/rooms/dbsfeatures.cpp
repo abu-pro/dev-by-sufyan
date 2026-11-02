@@ -68,7 +68,7 @@ namespace {
 
 // The one place the running version is named for the update checker;
 // the welcome page shows the same number (see setupWelcomePage).
-const char *const DBS_VERSION = "1.6.0";
+const char *const DBS_VERSION = "1.6.1";
 const char *const DBS_QUICKSAVE_KEY = "dbs/quickSaveEnabled";
 
 bool quickSaveEnabled()

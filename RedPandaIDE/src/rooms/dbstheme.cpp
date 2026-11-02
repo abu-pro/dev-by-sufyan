@@ -53,6 +53,37 @@ const QVector<DbsThemePack> &dbsThemePacks()
                     + QStringLiteral("/demonslayer/theme-ds-03.jpg"),
                 kThemesDir
                     + QStringLiteral("/demonslayer/theme-ds-04.jpg"),
+                // v1.6.1: the rest of the user's Demon Slayer
+                // collection joins Home rotation — every one was
+                // composition-audited so its face zone (if any)
+                // stays clear of the tile column (see
+                // artInfoFor in welcomepage.cpp).
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-05.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-06.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-07.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-08.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-09.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-10.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-11.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-12.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-13.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-14.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-15.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-16.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-17.jpg"),
             },
             kThemesDir
                 + QStringLiteral("/demonslayer/theme-ds-loading.jpg"),
@@ -64,6 +95,34 @@ const QVector<DbsThemePack> &dbsThemePacks()
             QStringLiteral(":/icons/images/themes/demonslayer/icons/file-py.png"),
             QStringLiteral(":/icons/images/themes/demonslayer/icons/file-generic.png"),
             {{QStringLiteral("new"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-new.png")}, {QStringLiteral("open"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-open.png")}, {QStringLiteral("project"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-project.png")}, {QStringLiteral("continue"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-continue.png")}, {QStringLiteral("rooms"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-rooms.png")}, {QStringLiteral("font"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-font.png")}, {QStringLiteral("templates"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-templates.png")}, {QStringLiteral("theme"), QStringLiteral(":/icons/images/themes/demonslayer/icons/tile-theme.png")}},
+            // v1.6.1 backdropArt: faces fill these frames (demon
+            // face strips, the Hashira group, Tanjiro & Nezuko in
+            // flames x3 grades, the B/W Tanjiro close-up, the two
+            // mask-motif patterns) — loading-screen / backdrop
+            // rotation only, never Home.
+            {
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg01.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg02.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg03.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg04.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg05.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg06.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg07.jpg"),
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg08.jpg"),
+                // The centred "Danger High Voltage" sign: its
+                // chibi face sits mid-frame, reachable by either
+                // tile column — backdrop rotation only.
+                kThemesDir
+                    + QStringLiteral("/demonslayer/theme-ds-bg09.jpg"),
+            },
         },
         {
             QStringLiteral("dragonball"),
@@ -75,6 +134,27 @@ const QVector<DbsThemePack> &dbsThemePacks()
                     + QStringLiteral("/dragonball/theme-db-01.jpg"),
                 kThemesDir
                     + QStringLiteral("/dragonball/theme-db-02.jpg"),
+                // v1.6.1: the rest of the user's Dragon Ball
+                // collection joins Home rotation (composition-
+                // audited like the Demon Slayer additions).
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-03.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-04.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-05.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-06.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-07.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-08.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-09.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-10.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-11.jpg"),
             },
             kThemesDir
                 + QStringLiteral("/dragonball/theme-db-loading.jpg"),
@@ -86,6 +166,18 @@ const QVector<DbsThemePack> &dbsThemePacks()
             QStringLiteral(":/icons/images/themes/dragonball/icons/file-py.png"),
             QStringLiteral(":/icons/images/themes/dragonball/icons/file-generic.png"),
             {{QStringLiteral("new"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-new.png")}, {QStringLiteral("open"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-open.png")}, {QStringLiteral("project"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-project.png")}, {QStringLiteral("continue"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-continue.png")}, {QStringLiteral("rooms"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-rooms.png")}, {QStringLiteral("font"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-font.png")}, {QStringLiteral("templates"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-templates.png")}, {QStringLiteral("theme"), QStringLiteral(":/icons/images/themes/dragonball/icons/tile-theme.png")}},
+            // v1.6.1 backdropArt: the centred Ultra Instinct
+            // silhouette, the frame-filling Kid Goku face and the
+            // classic cast group — loading-screen / backdrop
+            // rotation only, never Home.
+            {
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-bg01.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-bg02.jpg"),
+                kThemesDir
+                    + QStringLiteral("/dragonball/theme-db-bg03.jpg"),
+            },
         },
         {
             QStringLiteral("mha"),
@@ -93,12 +185,15 @@ const QVector<DbsThemePack> &dbsThemePacks()
             QStringLiteral("My Hero Academia"),
             QColor(QStringLiteral("#35D07F")),
             {
-                // Only the Tsuyu pond shot of the user's MHA folder
-                // keeps its face zone completely clear of the Home
-                // tile column; Bakugo and the All Might poster carry
-                // faces/hair under any tile placement, so they are
-                // not Home backgrounds (the poster is loading art).
+                // The Tsuyu pond shot keeps its face zone clear of
+                // the Home tile column. v1.6.1: the two Bakugo
+                // artworks from the same folder join it — in these
+                // compositions his face sits fully on the right
+                // with the lettering-only left side under the
+                // tiles (composition-audited; see artInfoFor).
                 kThemesDir + QStringLiteral("/mha/theme-mha-01.jpg"),
+                kThemesDir + QStringLiteral("/mha/theme-mha-03.jpg"),
+                kThemesDir + QStringLiteral("/mha/theme-mha-04.jpg"),
             },
             // The All Might manga poster doubles as loading art.
             kThemesDir + QStringLiteral("/mha/theme-mha-02.jpg"),
@@ -106,6 +201,16 @@ const QVector<DbsThemePack> &dbsThemePacks()
             QString(), QString(), QString(), QString(), QString(),
             QString(),
             {},
+            // v1.6.1 backdropArt: the dark Tsuyu grade, the light
+            // All Might collage and the two cast-group grades —
+            // faces everywhere, so loading-screen / backdrop
+            // rotation only, never Home.
+            {
+                kThemesDir + QStringLiteral("/mha/theme-mha-bg01.jpg"),
+                kThemesDir + QStringLiteral("/mha/theme-mha-bg02.jpg"),
+                kThemesDir + QStringLiteral("/mha/theme-mha-bg03.jpg"),
+                kThemesDir + QStringLiteral("/mha/theme-mha-bg04.jpg"),
+            },
         },
     };
     return packs;
@@ -296,6 +401,29 @@ bool dbsShowCustomizeHomeDialog(QWidget *parent,
         item->setData(Qt::UserRole, arts.at(i));
         if (arts.at(i) == currentPin)
             selectRow = i + 1;
+    }
+    // v1.6.1: the rest of the pack's collection is listed too,
+    // greyed out — these artworks' faces fill the frame, so they
+    // rotate through the loading screen and the panel backdrop
+    // instead of Home and cannot be pinned here.
+    if (pack) {
+        for (const QString &extra : pack->backdropArt) {
+            QPixmap pix(extra);
+            if (pix.isNull())
+                continue;
+            auto *item = new QListWidgetItem(
+                QIcon(pix.scaled(208, 117, Qt::KeepAspectRatioByExpanding,
+                                 Qt::SmoothTransformation)),
+                QFileInfo(extra).fileName()
+                    + QObject::tr(" (loading screen)"),
+                list);
+            item->setFlags(Qt::NoItemFlags);
+            item->setToolTip(
+                QObject::tr("This picture's faces fill the frame, "
+                            "so it rotates through the loading "
+                            "screen and the panel backdrop instead "
+                            "of Home."));
+        }
     }
     list->setCurrentRow(selectRow);
     layout->addWidget(list, 1);

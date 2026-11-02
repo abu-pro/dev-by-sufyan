@@ -36,6 +36,12 @@ struct DbsThemePack {
     QString explorerFilePy;
     QString explorerFileGeneric;
     QHash<QString, QString> tileIcons;  // "new" -> App Icon path
+    // v1.6.1: the rest of the user's collection — artworks whose
+    // faces fill the frame, so no Home tile column can ever stay
+    // clear of them. They rotate through the loading screen and
+    // the IDE panel backdrop instead of Home, and Customize Home
+    // lists them (greyed out) so the full collection is visible.
+    QStringList backdropArt;  // Qt resource paths
 };
 
 const QVector<DbsThemePack> &dbsThemePacks();

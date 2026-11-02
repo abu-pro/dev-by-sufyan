@@ -57,14 +57,54 @@
         <file>images/themes/demonslayer/theme-ds-02.jpg</file>
         <file>images/themes/demonslayer/theme-ds-03.jpg</file>
         <file>images/themes/demonslayer/theme-ds-04.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-05.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-06.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-07.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-08.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-09.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-10.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-11.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-12.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-13.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-14.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-15.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-16.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-17.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg01.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg02.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg03.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg04.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg05.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg06.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg07.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg08.jpg</file>
+        <file>images/themes/demonslayer/theme-ds-bg09.jpg</file>
         <file>images/themes/demonslayer/theme-ds-loading.jpg</file>
         <file>images/themes/demonslayer/icon.png</file>
         <file>images/themes/dragonball/theme-db-01.jpg</file>
         <file>images/themes/dragonball/theme-db-02.jpg</file>
+        <file>images/themes/dragonball/theme-db-03.jpg</file>
+        <file>images/themes/dragonball/theme-db-04.jpg</file>
+        <file>images/themes/dragonball/theme-db-05.jpg</file>
+        <file>images/themes/dragonball/theme-db-06.jpg</file>
+        <file>images/themes/dragonball/theme-db-07.jpg</file>
+        <file>images/themes/dragonball/theme-db-08.jpg</file>
+        <file>images/themes/dragonball/theme-db-09.jpg</file>
+        <file>images/themes/dragonball/theme-db-10.jpg</file>
+        <file>images/themes/dragonball/theme-db-11.jpg</file>
+        <file>images/themes/dragonball/theme-db-bg01.jpg</file>
+        <file>images/themes/dragonball/theme-db-bg02.jpg</file>
+        <file>images/themes/dragonball/theme-db-bg03.jpg</file>
         <file>images/themes/dragonball/theme-db-loading.jpg</file>
         <file>images/themes/dragonball/icon.png</file>
         <file>images/themes/mha/theme-mha-01.jpg</file>
         <file>images/themes/mha/theme-mha-02.jpg</file>
+        <file>images/themes/mha/theme-mha-03.jpg</file>
+        <file>images/themes/mha/theme-mha-04.jpg</file>
+        <file>images/themes/mha/theme-mha-bg01.jpg</file>
+        <file>images/themes/mha/theme-mha-bg02.jpg</file>
+        <file>images/themes/mha/theme-mha-bg03.jpg</file>
+        <file>images/themes/mha/theme-mha-bg04.jpg</file>
     </qresource>
     <qresource prefix="/demos">
         <file alias="dark.png">images/demos/dark.png</file>

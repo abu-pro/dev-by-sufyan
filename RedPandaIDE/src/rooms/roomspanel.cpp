@@ -117,6 +117,19 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     // v1.5.1: the join controls must hug their natural height — the
     // v1.5.0 panel let this box soak up the panel's empty space.
     mJoinBox->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+    // v1.6.1: keep the form COMPACT on wide docks too. The Rooms
+    // dock can be restored very wide (half the window), and the
+    // name/code fields then stretched into giant empty boxes
+    // ("room box kitna lamba hoya para ha"). Cap the form's width
+    // and pin every control to its natural height.
+    mJoinBox->setMaximumWidth(440);
+    for (QWidget *control :
+         {static_cast<QWidget *>(mNameEdit),
+          static_cast<QWidget *>(mCreateButton),
+          static_cast<QWidget *>(mCodeEdit),
+          static_cast<QWidget *>(mJoinButton)})
+        control->setSizePolicy(control->sizePolicy().horizontalPolicy(),
+                               QSizePolicy::Fixed);
 
     // ---- Tabs (visible while in a room) ---------------------------------
     mTabs = new QTabWidget{this};

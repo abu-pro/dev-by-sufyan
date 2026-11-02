@@ -5940,6 +5940,14 @@ void MainWindow::on_actionOpen_triggered()
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
+    // v1.6.1: if the app is quit while the full-screen Home owns
+    // the window, step out of it BEFORE the state below is saved —
+    // otherwise saveState() persists the hidden toolbars/docks and
+    // the next launch restores an IDE with no toolbar (the
+    // toolbar-missing bug). The layout the user sees in the IDE is
+    // what must be saved.
+    if (mHomeFullscreen)
+        dbsApplyHomeFullscreen(false);
     //if mQuitting is true, closeEvent is handled before, we are waiting for parsing finished.
     //Don't save config twice ( lastopen info will get lost )
     if (!mQuitting) {

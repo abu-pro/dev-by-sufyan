@@ -88,10 +88,13 @@ void DbsSplashScreen::finishAndClose()
     if (mOutroStarted)
         return;
     mOutroStarted = true;
-    // Impressive but snappy: pad very fast starts to ~1.5 s, never
-    // hold the user longer than ~2.6 s in total.
+    // v1.6.1: Sufyan's call — the loading screen is part of the
+    // show: it stays up ~5 s (the outro fade adds ~0.3 s), so the
+    // main window lands about 5-6 s after launch even on a fast
+    // machine. (v1.6.0 padded to only 1.5 s and, combined with the
+    // unpainted first frame, the screen was effectively invisible.)
     qint64 elapsed = mClock.elapsed();
-    qint64 wait = 1500 - elapsed;
+    qint64 wait = 5000 - elapsed;
     if (wait <= 0) {
         startOutro();
     } else {
@@ -397,7 +400,15 @@ DbsSplashScreen *dbsCreateSplashScreen(const QString &schemeName)
         if (pack->id == QStringLiteral("normal"))
             return new DbsSplashScreen(QPixmap(), pack->accent,
                                        pack->name, true);
-        artPath = pack->loadingArt;
+        // v1.6.1: the loading screen rotates through the pack's
+        // full art set — the hero loading art plus the backdropArt
+        // collection (the frame-filling faces that can never be
+        // Home backgrounds get their stage here).
+        QStringList artPool{pack->loadingArt};
+        artPool += pack->backdropArt;
+        artPool.removeAll(QString());
+        artPath = artPool.at(
+            QRandomGenerator::global()->bounded(artPool.size()));
         accent = pack->accent;
         themeName = pack->name;
     } else {

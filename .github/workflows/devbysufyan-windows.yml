@@ -163,19 +163,25 @@ jobs:
           Compress-Archive -Path "deploy\*" -DestinationPath "DevBySufyan-Portable.zip"
           Get-Item "DevBySufyan-Portable.zip" | Select-Object Name, Length
 
-      # Publishes (or updates) the v1.6.0 release with the installer and the
+      # Publishes (or updates) the v1.6.1 release with the installer and the
       # portable zip attached, using the runner's built-in GITHUB_TOKEN.
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.6.0
-          name: Dev by Sufyan — Red Panda Edition (v1.6.0)
+          tag_name: v1.6.1
+          name: Dev by Sufyan — Red Panda Edition (v1.6.1)
           body: |
-            **Dev by Sufyan — Red Panda Edition (v1.6.0)**
+            **Dev by Sufyan — Red Panda Edition (v1.6.1)**
 
             The Red Panda C++ IDE with live **Rooms** built in, rebranded as Dev by Sufyan.
 
-            New in v1.6.0:
+            New in v1.6.1 (fixes from hands-on testing of v1.6.0):
+            - **Toolbar is back** — quitting the app while the full-screen Home was showing could save the window layout with the toolbars hidden, so the next start opened the IDE with no toolbar at all. The layout is now restored before saving, and every start repairs a hidden toolbar automatically
+            - **The loading screen now actually shows** — it paints before the main window is built and stays up about 5-6 seconds on every start, in your theme's artwork, then hands over to the IDE
+            - **Rooms panel is compact again** — on a wide Rooms dock the name/code fields stretched into long empty boxes; the join form now keeps its natural size, grouped at the top of the panel
+            - **The FULL wallpaper collections are in** — every picture from the theme folders is now used: Demon Slayer has 17 Home wallpapers, Dragon Ball 11 and My Hero Academia 3 (Customize Home lists them all, Rotate cycles them). The pictures whose faces fill the whole frame — they could never keep a face clear of the Home tiles — rotate through the **loading screen** and the panel backdrop instead (10 Demon Slayer, 4 Dragon Ball, 5 My Hero Academia artworks), and Customize Home shows them marked "(loading screen)"
+
+            Everything from v1.6.0 is still here:
             - **Updater fixed — downloads resume and the install is recoverable** — updates now download into a kept folder (AppData DevBySufyan updates); a stalled or dropped download **resumes from where it stopped** instead of restarting (HTTP Range resume plus a stall watchdog that reconnects on its own); the file is only accepted when its size matches the release exactly; and after downloading, a panel shows the installer's exact saved path with an **Open Installer** button, so even if the automatic launch is blocked (Winlator), one click — or running the shown file yourself — finishes the job
             - **A clean Normal theme — now the default** for new installs: deep-slate, professional, no anime. Its loading screen plays an original Dev by Sufyan brand animation (the </> mark draws itself in and the name assembles), and its Home carries the same living brand scene. If you already picked a theme, your choice is kept
             - **Three full theme packs: Demon Slayer, Dragon Ball, My Hero Academia** (Themes menu) — each brings its own editor colour scheme, icon tint, curated wallpapers, a matching loading screen, and **its own icon pack**: the Explorer's folder and file icons and the Home tiles' icons all switch with the theme (Demon Slayer and Dragon Ball packs included; the My Hero Academia set keeps the stock icons). The five classic anime themes keep working as before
@@ -186,7 +192,7 @@ jobs:
             - **Nice fonts, bundled** — Inter for the interface and JetBrains Mono for the code editor are built in and used by default on fresh settings; if you already chose your own fonts, they are untouched, and the bundled fonts also appear in the Change Font dialog
             - **Theme backdrops** — with a pack active, its wallpaper also sits dimmed behind the side and bottom panels, while the code editor keeps its solid readable background
 
-            Updating from v1.5.x: the in-app updater in v1.5.x could download but never install, and downloads could stall — for THIS update, please download `DevBySufyan-Setup.exe` below in your browser and run it once (install-over; files and settings are kept). From v1.6.0 on, the in-app updater resumes downloads and shows the installer panel described above.
+            Updating from v1.6.0: the in-app updater can fetch this update itself (downloads resume if the connection drops). Updating from v1.5.x: the old updater could download but never install — download `DevBySufyan-Setup.exe` below in your browser and run it once (install-over; files and settings are kept).
 
             Everything from v1.5.1 is still here: Fix Lagao one-click fixes with preview + undo, Fix & Recheck, the 210-entry error dictionary with its search window, Program Templates on Home, 60-member rooms with the live ping indicator, auto-save + crash recovery, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo and flowchart.
 

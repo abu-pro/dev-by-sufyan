@@ -91,6 +91,37 @@ ArtInfo artInfoFor(const QString &path)
     if (name == "theme-db-02") return {{0.35, 0.30}, 0.72, QColor{0xB3, 0x88, 0xFF}, QRectF{0.595, 0.0, 0.28, 0.58}}; // Beerus — face right, starfield left
                 if (name == "theme-mha-01") return {{0.0, 0.40}, 0.71, QColor{0x35, 0xD0, 0x7F}, QRectF{0.36, 0.10, 0.64, 0.64}}; // Tsuyu pond (leaf included) — face centre-right, open sky/water left
     if (name == "theme-mha-02") return {{0.10, 0.26}, 0.53, QColor{0xFF, 0xC2, 0x4D}}; // All Might poster — face centre, crop pulls it right
+    // v1.6.1: the full collection joins rotation. Every entry below
+    // was composition-audited from the actual artwork: faceX puts
+    // the tile column on the side with NO face, and faceRect marks
+    // the audited face/subject zone the column never touches.
+    // Demon Slayer additions:
+    if (name == "theme-ds-05") return {{0.35, 0.45}, 0.30, QColor{0x8E, 0xC9, 0xE8}, QRectF{0.05, 0.30, 0.65, 0.50}}; // Hashira walking away (backs only) — right side is empty trees/grass
+    if (name == "theme-ds-06") return {{0.55, 0.45}, 0.55, QColor{0xFF, 0x7A, 0x18}, QRectF{0.44, 0.55, 0.12, 0.25}}; // Infinity Castle — only distant silhouettes, left is architecture/fire
+    if (name == "theme-ds-07") return {{0.62, 0.35}, 0.66, QColor{0xFF, 0x5A, 0x3C}, QRectF{0.52, 0.04, 0.28, 0.55}}; // split-face Tanjiro right — left is flames only
+    if (name == "theme-ds-08") return {{0.25, 0.45}, 0.22, QColor{0xE0, 0x23, 0x23}, QRectF{0.08, 0.28, 0.34, 0.45}}; // Demon Slayer logo left — right is empty dark gradient
+    if (name == "theme-ds-09") return {{0.68, 0.45}, 0.64, QColor{0xFF, 0xC2, 0x1C}, QRectF{0.48, 0.10, 0.45, 0.75}}; // trio in a circle right — left is pure black
+    if (name == "theme-ds-10") return {{0.16, 0.35}, 0.18, QColor{0xFF, 0x7A, 0x3D}, QRectF{0.02, 0.03, 0.38, 0.55}}; // dark Tanjiro close-up left — right is sleeve/flames, no face
+    if (name == "theme-ds-11") return {{0.50, 0.40}, 0.50, QColor{0x1F, 0xA3, 0x7A}}; // Tanjiro checkered pattern — no face
+    if (name == "theme-ds-12") return {{0.50, 0.40}, 0.50, QColor{0x17, 0xA3, 0x98}}; // teal checkered pattern — no face
+    if (name == "theme-ds-13") return {{0.50, 0.40}, 0.50, QColor{0xFF, 0x9E, 0x1B}}; // Zenitsu triangle pattern — no face
+    if (name == "theme-ds-14") return {{0.50, 0.40}, 0.50, QColor{0xFF, 0x8A, 0x00}}; // orange triangle pattern — no face
+    if (name == "theme-ds-15") return {{0.50, 0.40}, 0.50, QColor{0x3D, 0x5A, 0x80}}; // dark wave pattern — no face
+    if (name == "theme-ds-16") return {{0.50, 0.40}, 0.50, QColor{0x2E, 0x43, 0x70}}; // darker wave pattern — no face
+    if (name == "theme-ds-17") return {{0.50, 0.40}, 0.50, QColor{0x7F, 0xB0, 0x69}}; // bamboo pattern — no face
+    // Dragon Ball additions:
+    if (name == "theme-db-03") return {{0.68, 0.40}, 0.69, QColor{0xD9, 0xD9, 0xD9}, QRectF{0.60, 0.05, 0.18, 0.55}}; // Goku silhouettes right on black — left is empty black
+    if (name == "theme-db-04") return {{0.36, 0.55}, 0.30, QColor{0xFF, 0x8A, 0x00}}; // the seven Dragon Balls — no face, emptier white on the right
+    if (name == "theme-db-05") return {{0.55, 0.45}, 0.83, QColor{0xFF, 0x9E, 0x3D}, QRectF{0.78, 0.40, 0.14, 0.20}}; // sunset, Goku silhouette far right — left is sea/sky
+    if (name == "theme-db-06") return {{0.27, 0.35}, 0.32, QColor{0x4D, 0xD8, 0xFF}, QRectF{0.10, 0.05, 0.36, 0.45}}; // SSB Goku Kamehameha left — right is torso/energy, no face
+    if (name == "theme-db-07") return {{0.62, 0.40}, 0.65, QColor{0xFF, 0x9E, 0x7A}, QRectF{0.53, 0.26, 0.26, 0.38}}; // SSJ pastel portrait right — left is energy wash
+    if (name == "theme-db-08") return {{0.60, 0.40}, 0.63, QColor{0xBF, 0xEF, 0xFF}, QRectF{0.55, 0.25, 0.14, 0.25}}; // tiny Gohan silhouette centre-right on black — left is empty black
+    if (name == "theme-db-09") return {{0.64, 0.35}, 0.65, QColor{0xAF, 0xC4, 0xD8}, QRectF{0.52, 0.02, 0.28, 0.30}}; // Goku Black right — left is dark smoke
+    if (name == "theme-db-10") return {{0.64, 0.40}, 0.66, QColor{0x8F, 0xE3, 0x88}, QRectF{0.55, 0.22, 0.24, 0.30}}; // Broly centre-right — left is green energy sky
+    if (name == "theme-db-11") return {{0.27, 0.42}, 0.25, QColor{0x4D, 0xD8, 0xFF}, QRectF{0.13, 0.28, 0.30, 0.34}}; // SSB Goku diving left — right is starfield
+    // My Hero Academia additions:
+    if (name == "theme-mha-03") return {{0.70, 0.35}, 0.72, QColor{0xFF, 0x7A, 0x18}, QRectF{0.55, 0.03, 0.38, 0.48}}; // Bakugo right — left is lettering only
+    if (name == "theme-mha-04") return {{0.70, 0.35}, 0.72, QColor{0xFF, 0x8A, 0x3D}, QRectF{0.55, 0.03, 0.38, 0.48}}; // Bakugo, orange grade — same composition
     return {{0.5, 0.4}, 0.5, QColor{0xE0, 0x23, 0x23}};
 }
 

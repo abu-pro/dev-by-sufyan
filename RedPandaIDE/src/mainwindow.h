@@ -405,6 +405,11 @@ private:
     // Part 7: the actual chrome toggle (runs under the veil when
     // animations are on).
     void dbsApplyHomeFullscreen(bool fullscreen);
+    // v1.6.1: one-shot per launch — if the restored window state
+    // left the main toolbars hidden (state saved while the
+    // full-screen Home had them hidden), show them again in the
+    // IDE layout.
+    void dbsEnsureIdeToolbars();
     // Part 7: shows the Rooms dock with a short slide-in.
     void showRoomsDockAnimated();
     // Part 7 veil bookkeeping: a scheduled transition recomputes
@@ -1072,6 +1077,7 @@ private:
     class DbsVeil *mVeil = nullptr;
     QString mAppliedPackId;
     bool mHomeFullscreen = false;
+    bool mChromeReconciled = false;  // v1.6.1: startup toolbar repair done
     bool mStatusBarWasVisible = true;
     QHash<QWidget *, bool> mChromeSaved;
     QHash<QWidget *, QPalette> mBackdropSaved;

@@ -17,6 +17,7 @@
 #include "main.h"
 #include "rooms/dbsfx.h"
 #include "utils/os.h"
+#include <QElapsedTimer>
 #include <QIcon>
 
 #ifdef Q_OS_WIN
@@ -457,6 +458,20 @@ int main(int argc, char *argv[])
             splash->show();
             splash->setProgress(30, QObject::tr("Loading the editor"));
             app.processEvents();
+            // v1.6.1: force the splash's first paint NOW, before
+            // the blocking MainWindow construction below. A single
+            // processEvents was not enough on Windows — the splash
+            // window sat unpainted while the constructor ran, so
+            // the loading screen was never seen at all. repaint()
+            // paints synchronously; the short pump afterwards lets
+            // the compositor present the frame.
+            splash->repaint();
+            {
+                QElapsedTimer pump;
+                pump.start();
+                while (pump.elapsed() < 150)
+                    app.processEvents(QEventLoop::AllEvents, 20);
+            }
         }
 
         MainWindow mainWindow;

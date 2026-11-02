@@ -36,6 +36,7 @@
 #include <QFileInfo>
 #include <QMenu>
 #include <QMenuBar>
+#include <QRandomGenerator>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTimer>
@@ -459,7 +460,7 @@ void MainWindow::setupWelcomePage()
     // permanent "Home" tab of the editor area (see ensureHomeTab()).
     // The approved full-bleed anime design is unchanged.
     mWelcomePage = new WelcomePage(this);
-    mWelcomePage->setVersionText(tr("Version 1.6.0"));
+    mWelcomePage->setVersionText(tr("Version 1.6.1"));
     auto shortcutOf = [](QAction *action) {
         return action ? action->shortcut().toString() : QString();
     };
@@ -1881,9 +1882,25 @@ void MainWindow::updateDbsBackdrop()
         }
         return;
     }
-    QString artPath = dbsPinnedHomeArt(pack->id);
-    if (artPath.isEmpty() || !pack->wallpapers.contains(artPath))
-        artPath = pack->wallpapers.first();
+    QString artPath;
+    if (!pack->backdropArt.isEmpty()) {
+        // v1.6.1: the panel backdrop rotates through the pack's
+        // backdropArt collection (the frame-filling artworks that
+        // are not Home backgrounds). One pick per pack per session,
+        // so the texture doesn't churn on theme re-applies.
+        static QHash<QString, QString> sessionPicks;
+        artPath = sessionPicks.value(pack->id);
+        if (artPath.isEmpty() || !pack->backdropArt.contains(artPath)) {
+            artPath = pack->backdropArt.at(
+                QRandomGenerator::global()->bounded(
+                    pack->backdropArt.size()));
+            sessionPicks.insert(pack->id, artPath);
+        }
+    } else {
+        artPath = dbsPinnedHomeArt(pack->id);
+        if (artPath.isEmpty() || !pack->wallpapers.contains(artPath))
+            artPath = pack->wallpapers.first();
+    }
     QPixmap art(artPath);
     if (art.isNull())
         return;
@@ -1944,6 +1961,17 @@ void MainWindow::dbsRefreshHomeFullscreen()
     }
     const bool wantFullscreen =
         hostTabs->currentWidget() == mWelcomePage && !otherHasEditor;
+    if (!wantFullscreen && !mChromeReconciled) {
+        // v1.6.1 (toolbar-missing bug): the window state restored
+        // at startup can carry the toolbars HIDDEN — saved by a
+        // previous session that quit while the full-screen Home
+        // had them hidden. mHomeFullscreen starts false in the new
+        // process, so the early return below never restored them
+        // and the IDE opened with no toolbar at all. Repair once
+        // per launch, the first time the IDE layout is active.
+        mChromeReconciled = true;
+        dbsEnsureIdeToolbars();
+    }
     if (wantFullscreen == mHomeFullscreen)
         return;
     // Part 7: the layout switch fades through the veil —
@@ -1963,6 +1991,21 @@ void MainWindow::dbsRefreshHomeFullscreen()
     } else {
         dbsApplyHomeFullscreen(wantFullscreen);
     }
+}
+
+void MainWindow::dbsEnsureIdeToolbars()
+{
+    // The five main toolbars belong to the IDE layout: if the
+    // restored window state left any of them hidden, show it.
+    // (Their toggle actions follow automatically — visibility is
+    // the same property the toolbar context menu flips.)
+    const QList<QToolBar *> toolbars = {
+        ui->toolbarMain, ui->toolbarCode, ui->toolbarCompile,
+        ui->toolbarDebug, ui->toolbarCompilerSet,
+    };
+    for (QToolBar *bar : toolbars)
+        if (bar && !bar->isVisible())
+            bar->setVisible(true);
 }
 
 void MainWindow::dbsApplyHomeFullscreen(bool fullscreen)
