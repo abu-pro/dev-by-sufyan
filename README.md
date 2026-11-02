@@ -6,14 +6,14 @@ A Dev-C++-style code editor for **C, C++ and Python** with live **Rooms** built 
 
 **Made by Abu Sufyan.** Built on the Red Panda C++ IDE (see [Credits](#credits)).
 
-**Current version: v1.5.0**
+**Current version: v1.5.1**
 
 ## Download
 
 | File | What it is | Size |
 |---|---|---|
-| [DevBySufyan-Setup.exe](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.5.0/DevBySufyan-Setup.exe) | Windows installer (Start Menu shortcut + uninstaller) | 164.5 MB |
-| [DevBySufyan-Portable.zip](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.5.0/DevBySufyan-Portable.zip) | Portable folder — unzip and run, no install | 271.9 MB |
+| [DevBySufyan-Setup.exe](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.5.1/DevBySufyan-Setup.exe) | Windows installer (Start Menu shortcut + uninstaller) | 164.6 MB |
+| [DevBySufyan-Portable.zip](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.5.1/DevBySufyan-Portable.zip) | Portable folder — unzip and run, no install | 271.9 MB |
 
 - **Website:** https://devbysufyan.vercel.app
 - **Android app:** the phone app is at v1.3.0 — get `DevBySufyan.apk` from the [v1.3.0 release](https://github.com/abu-pro/dev-by-sufyan/releases/tag/v1.3.0). It shares the same live rooms as the PC app.
@@ -30,13 +30,13 @@ A Dev-C++-style code editor for **C, C++ and Python** with live **Rooms** built 
 - **Admin line pointing:** the admin can point a member to an exact line — their screen jumps to it, highlighted.
 - **Side by Side:** put a member's live code next to yours.
 - **Run All & Compare (admin):** run every member's program on one shared input and compare all the outputs in one table.
-- **Live ping indicator:** the Rooms panel shows a coloured dot + milliseconds — your live connection speed to the room server (green = good, yellow = slow, red = very slow or no reply).
+- **Live ping indicator:** the Rooms panel shows a coloured dot + milliseconds — your live connection speed to the room server (green = good, yellow = slow, red = very slow or no reply). The web app shows the same indicator in its room view.
 
 ## Features
 
-- **Home screen** — a real Start tab like MS Word: New / Open, your recent files, and a rotating anime welcome with five themes (Sukuna, Zenitsu, Naruto × Sasuke, Luffy Gear 5, Gojo) whose colours carry through the whole app.
+- **Home screen** — a real Start tab like MS Word: New / Open, **Program Templates** (Multiplication Table, Factorial, Prime Check, Simple Calculator, Sum & Average — in C++, C and Python), your recent files, and a rotating anime welcome with five themes (Sukuna, Zenitsu, Naruto × Sasuke, Luffy Gear 5, Gojo) whose colours carry through the whole app.
 - **Auto-save + crash recovery** — files save themselves every 30 seconds; drafts (even untitled) are kept, and after a crash the app offers to restore them.
-- **Compiler errors in easy words** — double-click an error and get a plain-English explanation of what it means and how to fix it — 107 common errors covered, for GCC/MinGW C/C++ and Python. It is a **built-in offline dictionary — no AI, no internet needed**, and the app stays completely free.
+- **Compiler errors in easy words — and Fix Lagao one-click fixes** — double-click an error and get a plain-English explanation of what it means and how to fix it; when the repair is certain (missing `;`, `)`, `}`, a Python `:`, a missing `#include`, the compiler's own "did you mean"), a **Fix it for me** button applies it for you (Ctrl+Z undoes it), and **Fix & Recheck** recompiles and tells you honestly whether that error is gone. **210 errors covered**, for GCC/MinGW C/C++ and Python — and Help → **Error Dictionary** lets you search and browse them all without compiling. It is a **built-in offline dictionary — no AI, no internet needed**, and the app stays completely free.
 - **Online update** — when a new version is released on GitHub, the app tells you on the Home screen at startup and you can download the update right from there — from v1.5.0 the update downloads and installs from inside the app, no browser needed; Help → Check for Updates checks any time.
 - **Code photo** — save your code as a clean PNG picture (your theme and font, 1x/2x) for sharing.
 - **Flowchart** — turn simple C++ code (sequence, input/output, if/else, loops, return) into a flowchart picture and save it as PNG.
@@ -47,6 +47,8 @@ A Dev-C++-style code editor for **C, C++ and Python** with live **Rooms** built 
 Dev by Sufyan is **free**, and its smart features work **offline** — no accounts, no AI services, no subscriptions.
 
 ## Version history
+
+- **v1.5.1** — Fix Lagao one-click error fixes + Fix & Recheck recompile verdict, error dictionary doubled to 210 entries with a searchable Dictionary window, Program Templates on the Home page, compact not-in-a-room Rooms panel, ping indicator in the web app
 
 - **v1.5.0** — easy-words error dictionary more than doubled (107 entries, now including the common Python errors), live ping indicator in Rooms, room member limit up to 60, updates download + install from inside the app
 - **v1.4.0** — the nine-features release: auto-save + recovery, easy-words error explanations, online update, live cursors, admin line pointing, Side by Side, Run All & Compare, code photo, flowchart
