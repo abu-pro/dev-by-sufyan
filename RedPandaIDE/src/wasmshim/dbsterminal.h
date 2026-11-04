@@ -23,6 +23,20 @@
  * in the input box) that re-runs the program with that stdin and
  * appends the new output in the same window, console fashion.
  *
+ * Part 9 Addendum (2026-11-04, Sufyan): the console must FLOAT
+ * over the IDE like a chat panel, not take over the whole page.
+ * On Qt for WebAssembly a plain Qt::Window top-level is mapped
+ * onto the full canvas (rig-proven with a flag probe), while a
+ * Qt::Dialog top-level gets a real floating window: platform
+ * title bar (window title + close button, draggable), honoured
+ * size/position, and — with Qt::WindowStaysOnTopHint — it stays
+ * in front when the user clicks back into the editor, without
+ * ever being modal. The window therefore uses
+ * Qt::Dialog | Qt::WindowStaysOnTopHint. Its geometry is
+ * remembered across instances (it deletes itself on close), so
+ * a dragged panel reopens where the user left it; the first
+ * open goes to the bottom-right of the IDE.
+ *
  * This file is only added to the build for EMSCRIPTEN (see
  * RedPandaIDE/CMakeLists.txt); native builds never see it.
  */
@@ -83,6 +97,13 @@ signals:
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
     void keyPressEvent(QKeyEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+
+private:
+    // Keep the whole frame (platform title bar included) inside the
+    // host IDE window; applied once the platform frame exists.
+    void clampInsideHost();
 
 private:
     // (printHeader removed in Stage 3: output-only console.)
