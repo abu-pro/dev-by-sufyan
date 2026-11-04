@@ -38,7 +38,29 @@ struct RoomMemberInfo {
     QString role; // "admin" | "member"
     bool away = false; // v1.2.0: connection dropped, seat held for resume
     bool restricted = false; // v1.3.0: admin barred this member from editing others' code
+    // 2026-11-04: the admin granted this member permission to edit the
+    // ADMIN's own code (server-enforced; a grant opens only that doc).
+    bool canEditAdminDoc = false;
     RoomDoc doc;
+};
+
+// One entry of a document's edit history ("kis ne edit kiya"). The
+// server coalesces one editor's typing bursts (60 s) into a single
+// entry and caps the list at 50 per document, session-scoped.
+struct RoomHistoryEntry {
+    QString byName;
+    qint64 ts = 0; // milliseconds since epoch
+};
+
+// One room-activity event for the notification feed: a non-owner edit
+// starting a new stretch, or a grant/revoke of admin-doc permission.
+struct RoomEvent {
+    QString kind; // "edit" | "grant" | "revoke"
+    QString byId;
+    QString byName;
+    QString targetId;
+    QString targetName;
+    qint64 ts = 0; // milliseconds since epoch
 };
 
 struct RoomSettings {
@@ -85,6 +107,16 @@ public:
     // members' code (or lift the restriction). The server enforces it;
     // the member_restricted broadcast confirms the change to everyone.
     void setMemberRestricted(const QString &targetId, bool restricted);
+    // 2026-11-04: admin-only — grant (or revoke) one member permission
+    // to edit the ADMIN's own code. The server enforces it (the grant
+    // opens only the admin's document) and confirms the change to
+    // everyone with the adminDocGranted() broadcast.
+    void grantAdminDoc(const QString &targetId, bool granted);
+    // 2026-11-04: ask the server for one document's edit history. The
+    // answer (and later live pushes after non-owner edits) arrive via
+    // docHistoryReceived(); only the doc's owner and the admin get
+    // entries, everyone else gets the denied flag.
+    void requestDocHistory(const QString &targetId);
     // v1.4.0: live cursor — share my caret position with the room
     // (line/column are 1-based editor coordinates). Callers throttle.
     void sendCursor(int line, int col);
@@ -118,7 +150,8 @@ signals:
     void roomJoined(const QString &selfId, const QString &role,
                     const QString &code, const RoomSettings &settings,
                     const QVector<RoomMemberInfo> &members,
-                    const QVector<RoomChatMessage> &chatLog);
+                    const QVector<RoomChatMessage> &chatLog,
+                    const QVector<RoomEvent> &events);
     void memberJoined(const RoomMemberInfo &member);
     void memberLeft(const QString &memberId, const QString &name);
     void memberAway(const QString &memberId, const QString &name);
@@ -130,6 +163,18 @@ signals:
                       const QString &text, qint64 ts);
     void memberTyping(const QString &fromId, const QString &fromName);
     void memberRestricted(const QString &targetId, bool restricted);
+    // 2026-11-04: the admin granted/revoked a member's permission to
+    // edit the admin's code (broadcast to the whole room).
+    void adminDocGranted(const QString &targetId, bool granted);
+    // 2026-11-04: edit history for one document — the answer to
+    // requestDocHistory() or a live push after a non-owner edit.
+    // denied=true means we may not see this document's history.
+    void docHistoryReceived(const QString &targetId,
+                            const QVector<RoomHistoryEntry> &entries,
+                            bool denied);
+    // 2026-11-04: a new room-activity event (the snapshot's recent
+    // events arrive with roomJoined instead).
+    void roomEventReceived(const RoomEvent &event);
     // v1.4.0: another member's caret moved (1-based line/col).
     void memberCursor(const QString &memberId, int line, int col);
     // v1.4.0: the admin pointed at a line of targetId's code.
