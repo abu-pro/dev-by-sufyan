@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "settingswidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 
 #include <QAbstractItemView>
 #include <QCheckBox>
@@ -58,9 +61,13 @@ void SettingsWidget::load()
         connectInputs();
         onLoaded();
     } catch (FileError & e) {
+#ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(nullptr, tr("Load Error"), e.reason());
+#else
         QMessageBox::warning(nullptr,
                          tr("Load Error"),
                          e.reason());
+#endif
     }
 }
 
@@ -70,9 +77,13 @@ void SettingsWidget::save()
         doSave();
         clearSettingsChanged();
     } catch (FileError & e) {
+#ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(nullptr, tr("Save Error"), e.reason());
+#else
         QMessageBox::warning(nullptr,
                          tr("Save Error"),
                          e.reason());
+#endif
     }
 }
 

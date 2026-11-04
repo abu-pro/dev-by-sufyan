@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "projectgeneralwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_projectgeneralwidget.h"
 #include "../project.h"
 #include "../mainwindow.h"
@@ -152,11 +155,18 @@ void ProjectGeneralWidget::doSave()
         if (iconPath!=mIconPath) {
             if (fileExists(iconPath)) {
                 if (!QFile::remove(iconPath)) {
+#ifdef __EMSCRIPTEN__
+                    dbsWasmShowInfo(this,
+                                    tr("Can't remove old icon file"),
+                                    tr("Can't remove old icon file '%1'")
+                                    .arg(iconPath));
+#else
                     QMessageBox::critical(this,
                                           tr("Can't remove old icon file"),
                                           tr("Can't remove old icon file '%1'")
                                           .arg(iconPath),
                                           QMessageBox::Ok);
+#endif
                     return;
                 }
             }
@@ -175,6 +185,17 @@ void ProjectGeneralWidget::doSave()
 
 void ProjectGeneralWidget::on_btnBrowse_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(this,
                                                     tr("Select icon file"),
                                                     pMainWindow->project()->directory(),

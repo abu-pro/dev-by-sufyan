@@ -74,4 +74,21 @@ QStringList dbsClassicArtworks();
 bool dbsShowCustomizeHomeDialog(QWidget *parent,
                                 const DbsThemePack *pack);
 
+#ifdef __EMSCRIPTEN__
+#include <functional>
+// Part 9 (web build): the same picker, shown NON-modally — the
+// native version's exec() is the WASM wall. onDone(changed) runs
+// when the dialog closes; the pin itself is written by the
+// dialog's accept path, exactly like the native version, and the
+// caller re-applies the pack when changed is true.
+void dbsShowCustomizeHomeDialogAsync(
+        QWidget *parent, const DbsThemePack *pack,
+        std::function<void(bool changed)> onDone);
+// Part 9 (web build): a non-modal information box (the static
+// QMessageBox::information is an exec() call). Heap-allocated,
+// WA_DeleteOnClose, shown with open() — fire and forget.
+void dbsWasmShowInfo(QWidget *parent, const QString &title,
+                     const QString &text);
+#endif
+
 #endif // DBSTHEME_H

@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "toolsgeneralwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_toolsgeneralwidget.h"
 #include "../mainwindow.h"
 #include "../settings.h"
@@ -102,11 +105,16 @@ void ToolsGeneralWidget::finishEditing(bool askSave)
     if (!mEdited)
         return;
     if (ui->txtTitle->text().isEmpty()) {
+#ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(this, tr("Error"), tr("Title shouldn't be empty!"));
+#else
         QMessageBox::critical(this,
                               tr("Error"),
                               tr("Title shouldn't be empty!"));
+#endif
         return;
     }
+#ifndef __EMSCRIPTEN__
     if (askSave && QMessageBox::question(this,
                           tr("Save Changes?"),
                           tr("Do you want to save changes to \"%1\"?").arg(ui->txtTitle->text()),
@@ -114,6 +122,9 @@ void ToolsGeneralWidget::finishEditing(bool askSave)
                           QMessageBox::Yes) != QMessageBox::Yes) {
         return;
     }
+#endif
+    // Part 9 (web build): no modal ask - the tool's changes are
+    // saved, like the Settings dialog's page-switch behavior.
     PToolItem item = mToolsModel.getTool(mCurrentEditingRow);
     item->workingDirectory = ui->txtDirectory->text();
     item->parameters = ui->txtParameters->text();
@@ -357,6 +368,17 @@ void ToolsGeneralWidget::on_btnInsertMacro_clicked()
 
 void ToolsGeneralWidget::on_btnBrowseWorkingDirectory_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString folder = QFileDialog::getExistingDirectory(this,tr("Choose Folder"));
     if (!folder.isEmpty()) {
         ui->txtDirectory->setText(folder);
@@ -366,6 +388,17 @@ void ToolsGeneralWidget::on_btnBrowseWorkingDirectory_clicked()
 
 void ToolsGeneralWidget::on_btnBrowseProgram_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
         this,
         tr("Select program"),

@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "projectoutputwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_projectoutputwidget.h"
 #include "../mainwindow.h"
 #include "../project.h"
@@ -59,6 +62,17 @@ void ProjectOutputWidget::doSave()
 
 void ProjectOutputWidget::on_btnOutputDir_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString currentName = ui->txtOutputDir->text();
     if (currentName.isEmpty())
         currentName = pMainWindow->project()->directory();
@@ -73,6 +87,17 @@ void ProjectOutputWidget::on_btnOutputDir_clicked()
 
 void ProjectOutputWidget::on_btnObjOutputDir_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString currentName = ui->txtObjOutputDir->text();
     if (currentName.isEmpty())
         currentName = pMainWindow->project()->directory();
@@ -87,6 +112,17 @@ void ProjectOutputWidget::on_btnObjOutputDir_clicked()
 
 void ProjectOutputWidget::on_btnCompileLog_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString currentFile=ui->txtCompileLog->text();
     if (currentFile.isEmpty()) {
         currentFile = pMainWindow->project()->directory();

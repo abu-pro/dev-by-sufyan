@@ -73,6 +73,20 @@ void EditorFontWidget::on_btnAddFont_clicked()
 {
     QModelIndex index = ui->lstFontList->currentIndex();
     int insertPos = index.isValid() ? index.row() + 1 : mModel.rowCount();
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): non-modal, apply-on-accept.
+    {
+        auto *dlg = new EditorFontDialog(insertPos==0, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        connect(dlg, &QDialog::accepted, this, [this, dlg, insertPos]() {
+            mModel.insertRow(insertPos);
+            mModel.setData(mModel.index(insertPos), dlg->fontFamily());
+            ui->lstFontList->setCurrentIndex(mModel.index(insertPos));
+        });
+        dlg->open();
+    }
+    return;
+#endif
     EditorFontDialog dlg(insertPos==0, this);
     if (dlg.exec() == QDialog::Accepted) {
         mModel.insertRow(insertPos);
@@ -219,6 +233,19 @@ void EditorFontWidget::modifyFont(const QModelIndex &index)
 {
     if (!index.isValid())
         return;
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): non-modal, apply-on-accept.
+    {
+        auto *dlg = new EditorFontDialog(index.row()==0, this);
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        dlg->setFontFamily(mModel.data(index, Qt::DisplayRole).toString());
+        connect(dlg, &QDialog::accepted, this, [this, dlg, index]() {
+            mModel.setData(index, dlg->fontFamily());
+        });
+        dlg->open();
+    }
+    return;
+#endif
     EditorFontDialog dlg(index.row()==0, this);
     dlg.setFontFamily(mModel.data(index, Qt::DisplayRole).toString());
     if (dlg.exec() == QDialog::Accepted) {

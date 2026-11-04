@@ -26,6 +26,9 @@
 #include "../mainwindow.h"
 #include "../editormanager.h"
 #include "executablerunner.h"
+#ifdef __EMSCRIPTEN__
+#include "onlinebackend.h"
+#endif
 #include "ojproblemcasesrunner.h"
 #include "../utils.h"
 #include "../utils/pe.h"
@@ -84,12 +87,19 @@ bool CompilerManager::running() const
 
 void CompilerManager::compile(const QString& filename, FileType fileType, const QByteArray& encoding, bool rebuild, CppCompileType compileType)
 {
+#ifndef __EMSCRIPTEN__
+    // Native builds refuse to work without a local compiler set.
+    // The web build has no local compilers at all: single-file
+    // compile/run go through the online backend instead, so this
+    // gate is skipped there (Compiler::runOnlineCompile and
+    // CompilerManager::run handle the web flow).
     if (!pSettings->compilerSets().defaultSet()) {
         QMessageBox::critical(mMainWindow,
                               tr("No compiler set"),
                               tr("No compiler set is configured.")+tr("Can't start debugging."));
         return;
     }
+#endif
     {
         QMutexLocker locker(&mCompileMutex);
         if (mCompiler!=nullptr) {
@@ -98,7 +108,11 @@ void CompilerManager::compile(const QString& filename, FileType fileType, const 
         mCompileErrorCount = 0;
         mCompileIssueCount = 0;
         //deleted when thread finished
-#ifdef ENABLE_SDCC
+// (Web build: defaultSet() may be null there and must not be
+// dereferenced; the SDCC choice is irrelevant anyway because
+// Compiler::run() reroutes every file compiler to the online
+// backend — so the SDCC branch is compiled out for Emscripten.)
+#if defined(ENABLE_SDCC) && !defined(__EMSCRIPTEN__)
         if (pSettings->compilerSets().defaultSet()->compilerType()==CompilerType::SDCC) {
             mCompiler = new SDCCFileCompiler(filename,encoding,compileType,false);
         } else
@@ -110,7 +124,16 @@ void CompilerManager::compile(const QString& filename, FileType fileType, const 
         }
         mCompiler->setParserForFile(getParserForFile(filename));
         mCompiler->setRebuild(rebuild);
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+        // Part 6 (single-thread web build): QThread::finished fires
+        // when run() returns — before the async online compile has
+        // even answered — so the compiler must be deleted on its own
+        // completion signal instead. (Same swap at every compiler /
+        // runner connection site in this file.)
+        connect(mCompiler, &Compiler::compileFinished, mCompiler, &QObject::deleteLater);
+#else
         connect(mCompiler, &Compiler::finished, mCompiler, &QObject::deleteLater);
+#endif
         connect(mCompiler, &Compiler::compileFinished, this, &CompilerManager::onCompileFinished);
         connect(mCompiler, &Compiler::compileIssue, this, &CompilerManager::onCompileIssue);
         if (mMainWindow) {
@@ -127,12 +150,19 @@ void CompilerManager::compile(const QString& filename, FileType fileType, const 
 
 void CompilerManager::compileProject(std::shared_ptr<Project> project, bool rebuild)
 {
+#ifndef __EMSCRIPTEN__
+    // Native builds refuse to work without a local compiler set.
+    // The web build has no local compilers at all: single-file
+    // compile/run go through the online backend instead, so this
+    // gate is skipped there (Compiler::runOnlineCompile and
+    // CompilerManager::run handle the web flow).
     if (!pSettings->compilerSets().defaultSet()) {
         QMessageBox::critical(mMainWindow,
                               tr("No compiler set"),
                               tr("No compiler set is configured.")+tr("Can't start debugging."));
         return;
     }
+#endif
     {
         QMutexLocker locker(&mCompileMutex);
         if (mCompiler!=nullptr) {
@@ -143,7 +173,11 @@ void CompilerManager::compileProject(std::shared_ptr<Project> project, bool rebu
         //deleted when thread finished
         mCompiler = createProjectCompiler(project);
         mCompiler->setRebuild(rebuild);
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+        connect(mCompiler, &Compiler::compileFinished, mCompiler, &QObject::deleteLater);
+#else
         connect(mCompiler, &Compiler::finished, mCompiler, &QObject::deleteLater);
+#endif
         connect(mCompiler, &Compiler::compileFinished, this, &CompilerManager::onCompileFinished);
 
         connect(mCompiler, &Compiler::compileIssue, this, &CompilerManager::onCompileIssue);
@@ -161,12 +195,19 @@ void CompilerManager::compileProject(std::shared_ptr<Project> project, bool rebu
 
 void CompilerManager::cleanProject(std::shared_ptr<Project> project)
 {
+#ifndef __EMSCRIPTEN__
+    // Native builds refuse to work without a local compiler set.
+    // The web build has no local compilers at all: single-file
+    // compile/run go through the online backend instead, so this
+    // gate is skipped there (Compiler::runOnlineCompile and
+    // CompilerManager::run handle the web flow).
     if (!pSettings->compilerSets().defaultSet()) {
         QMessageBox::critical(mMainWindow,
                               tr("No compiler set"),
                               tr("No compiler set is configured.")+tr("Can't start debugging."));
         return;
     }
+#endif
     {
         QMutexLocker locker(&mCompileMutex);
         if (mCompiler!=nullptr) {
@@ -179,7 +220,11 @@ void CompilerManager::cleanProject(std::shared_ptr<Project> project)
         compiler->setOnlyClean(true);
         mCompiler = compiler;
         mCompiler->setRebuild(false);
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+        connect(mCompiler, &Compiler::compileFinished, mCompiler, &QObject::deleteLater);
+#else
         connect(mCompiler, &Compiler::finished, mCompiler, &QObject::deleteLater);
+#endif
         connect(mCompiler, &Compiler::compileFinished, this, &CompilerManager::onCompileFinished);
 
         connect(mCompiler, &Compiler::compileIssue, this, &CompilerManager::onCompileIssue);
@@ -197,12 +242,19 @@ void CompilerManager::cleanProject(std::shared_ptr<Project> project)
 
 void CompilerManager::buildProjectMakefile(std::shared_ptr<Project> project)
 {
+#ifndef __EMSCRIPTEN__
+    // Native builds refuse to work without a local compiler set.
+    // The web build has no local compilers at all: single-file
+    // compile/run go through the online backend instead, so this
+    // gate is skipped there (Compiler::runOnlineCompile and
+    // CompilerManager::run handle the web flow).
     if (!pSettings->compilerSets().defaultSet()) {
         QMessageBox::critical(mMainWindow,
                               tr("No compiler set"),
                               tr("No compiler set is configured.")+tr("Can't start debugging."));
         return;
     }
+#endif
     {
         QMutexLocker locker(&mCompileMutex);
         if (mCompiler!=nullptr) {
@@ -216,12 +268,36 @@ void CompilerManager::buildProjectMakefile(std::shared_ptr<Project> project)
 
 void CompilerManager::checkSyntax(const QString &filename, const QByteArray& encoding, const QString &content, std::shared_ptr<Project> project)
 {
+#ifdef __EMSCRIPTEN__
+    // Web build — Part 8 resolves the Part 2/5 open decision:
+    // DISABLE the automatic background syntax check. It has no
+    // local compiler here; Part 2 routed it to the online backend,
+    // which EXECUTES the program on the server — on every line
+    // change and every save, with no explicit user action. That is
+    // both a leading typing-lag source (a remote compile per edit
+    // burst) and an unwanted remote execution of in-progress code.
+    // Manual Compile / Compile & Run (F9/F11) do not pass through
+    // this function and keep producing the same diagnostics on
+    // demand.
+    Q_UNUSED(filename);
+    Q_UNUSED(encoding);
+    Q_UNUSED(content);
+    Q_UNUSED(project);
+    return;
+#endif
+#ifndef __EMSCRIPTEN__
+    // Native builds refuse to work without a local compiler set.
+    // The web build has no local compilers at all: single-file
+    // compile/run go through the online backend instead, so this
+    // gate is skipped there (Compiler::runOnlineCompile and
+    // CompilerManager::run handle the web flow).
     if (!pSettings->compilerSets().defaultSet()) {
         QMessageBox::critical(mMainWindow,
                               tr("No compiler set"),
                               tr("No compiler set is configured.")+tr("Can't start debugging."));
         return;
     }
+#endif
     {
         QMutexLocker locker(&mBackgroundSyntaxCheckMutex);
         if (mBackgroundSyntaxChecker!=nullptr) {
@@ -236,7 +312,11 @@ void CompilerManager::checkSyntax(const QString &filename, const QByteArray& enc
         if (!project)
             mBackgroundSyntaxChecker->setParserForFile(getParserForFile(filename));
         mBackgroundSyntaxChecker->setProject(project);
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+        connect(mBackgroundSyntaxChecker, &Compiler::compileFinished, mBackgroundSyntaxChecker, &QThread::deleteLater);
+#else
         connect(mBackgroundSyntaxChecker, &Compiler::finished, mBackgroundSyntaxChecker, &QThread::deleteLater);
+#endif
         connect(mBackgroundSyntaxChecker, &Compiler::compileIssue, this, &CompilerManager::onSyntaxCheckIssue);
         connect(mBackgroundSyntaxChecker, &Compiler::compileFinished, this, &CompilerManager::onSyntaxCheckFinished);
         if (mMainWindow) {
@@ -266,6 +346,81 @@ void CompilerManager::run(
         redirectInput =true;
         redirectInputFilename = pSettings->executor().inputFilename();
     }
+#ifdef __EMSCRIPTEN__
+    {
+        // Web build: there is no real executable (only the
+        // placeholder the online compile left behind) and no console
+        // pauser to spawn. Recover the source file that produced the
+        // placeholder and run it through the online backend instead;
+        // the program's output lands in the terminal window (Part 9;
+        // before that it went to the Tools Output panel). Stdin
+        // comes from the executor's existing redirect-input file
+        // setting, exactly like the native runner's redirected
+        // input — or from the terminal's input zone on a re-run.
+        const QString sourceFile = dbsOnlineFindSourceForExecutable(filename);
+        if (sourceFile.isEmpty()) {
+            // Part 9: no QMessageBox::critical here — its static
+            // exec() is the WASM wall. The failure lands in the
+            // terminal (if a run opened one) and the Tools Output
+            // log, through MainWindow's WASM helper.
+            if (mMainWindow)
+                mMainWindow->dbsWasmRunFailedLine(
+                            tr("Run Failed: couldn't find the source "
+                               "file for \"%1\".").arg(filename));
+            return;
+        }
+        const QString language = dbsOnlineLanguageForFilename(sourceFile);
+        const QString code = QString::fromUtf8(
+                    readFileToByteArray(sourceFile));
+        QString stdinText;
+        if (redirectInput && fileExists(redirectInputFilename))
+            stdinText = QString::fromUtf8(
+                        readFileToByteArray(redirectInputFilename));
+        // Part 9: the terminal window's "Run again with this
+        // input" overrides the redirect-input file for this run.
+        if (mDbsWasmStdinOverrideSet) {
+            stdinText = mDbsWasmStdinOverride;
+            mDbsWasmStdinOverride.clear();
+            mDbsWasmStdinOverrideSet = false;
+        }
+        // Part 9: the run's output belongs in the terminal
+        // window — make sure it exists, knows this run's context,
+        // and has its input zone prefilled with the stdin in use.
+        if (mMainWindow)
+            mMainWindow->dbsWasmEnsureTerminal(
+                        sourceFile, filename, workDir, stdinText);
+        auto *onlineRunner = new OnlineExecutableRunner(
+                    filename, workDir, language, code, stdinText);
+        mRunner = onlineRunner;
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+        // Part 6 (single-thread web build): completion is the
+        // runner's own terminated() signal, emitted by the async
+        // continuation — QThread::finished fires at run() return,
+        // before the program has even run.
+        connect(mRunner, &Runner::terminated, this, &CompilerManager::onRunnerTerminated);
+        connect(mRunner, &Runner::terminated, mRunner, &Runner::deleteLater);
+#else
+        connect(mRunner, &Runner::finished, this, &CompilerManager::onRunnerTerminated);
+        connect(mRunner, &Runner::finished, mRunner, &Runner::deleteLater);
+#endif
+        if (mMainWindow) {
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+            connect(mRunner, &Runner::terminated, mMainWindow, &MainWindow::onRunFinished);
+#else
+            connect(mRunner, &Runner::finished, mMainWindow, &MainWindow::onRunFinished);
+#endif
+            // Part 9: run output goes to the terminal window
+            // (structured result), and a run error is reported
+            // there too — NOT through onRunErrorOccured, whose
+            // QMessageBox::critical is the WASM exec() wall.
+            connect(mRunner, &Runner::runErrorOccurred, mMainWindow, &MainWindow::dbsWasmShowRunError);
+            connect(onlineRunner, &OnlineExecutableRunner::dbsResultReceived,
+                    mMainWindow, &MainWindow::dbsWasmShowRunResult);
+        }
+        mRunner->start();
+        return;
+    }
+#endif
     bool useCustomTerminal = pSettings->environment().useCustomTerminal();
     ExecutableRunner * execRunner;
     if (!PortableExecutable(filename).isWin32GuiApp()) {
@@ -394,10 +549,21 @@ void CompilerManager::doRunProblem(const QString &filename, const QString &argum
         execRunner->setExecTimeout(timeLimit);
     if (memoryLimit)
         execRunner->setMemoryLimit(memoryLimit);
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+    // Part 6 (single-thread web build): OJ cases complete through
+    // the runner's terminated() signal at the end of the async chain.
+    connect(mRunner, &Runner::terminated, this ,&CompilerManager::onRunnerTerminated);
+    connect(mRunner, &Runner::terminated, mRunner ,&Runner::deleteLater);
+#else
     connect(mRunner, &Runner::finished, this ,&CompilerManager::onRunnerTerminated);
     connect(mRunner, &Runner::finished, mRunner ,&Runner::deleteLater);
+#endif
     if (mMainWindow) {
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+        connect(mRunner, &Runner::terminated, mMainWindow ,&MainWindow::onRunProblemFinished);
+#else
         connect(mRunner, &Runner::finished, mMainWindow ,&MainWindow::onRunProblemFinished);
+#endif
         connect(mRunner, &Runner::runErrorOccurred, mMainWindow ,&MainWindow::onRunErrorOccured);
         connect(execRunner, &OJProblemCasesRunner::caseStarted, mMainWindow, &MainWindow::onOJProblemCaseStarted);
         connect(execRunner, &OJProblemCasesRunner::caseFinished, mMainWindow, &MainWindow::onOJProblemCaseFinished);
@@ -528,6 +694,14 @@ MainWindow *CompilerManager::mainWindow() const
 {
     return mMainWindow;
 }
+
+#ifdef __EMSCRIPTEN__
+void CompilerManager::dbsWasmSetStdinOverride(const QString &text)
+{
+    mDbsWasmStdinOverride = text;
+    mDbsWasmStdinOverrideSet = true;
+}
+#endif
 
 void CompilerManager::setMainWindow(MainWindow *newMainWindow)
 {

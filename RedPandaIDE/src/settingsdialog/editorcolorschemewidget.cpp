@@ -15,6 +15,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "editorcolorschemewidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#include <QInputDialog>
+#endif
 #include "ui_editorcolorschemewidget.h"
 #include "../settings.h"
 #include "../mainwindow.h"
@@ -367,7 +371,11 @@ void EditorColorSchemeWidget::doSave()
         pSettings->editor().save();
         pMainWindow->updateEditorColorSchemes();
     } catch (FileError e) {
-        QMessageBox::critical(this,tr("Error"),e.reason());
+        #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Error"), e.reason());
+#else
+            QMessageBox::critical(this,tr("Error"),e.reason());
+#endif
     }
 }
 
@@ -382,7 +390,15 @@ void EditorColorSchemeWidget::on_actionCopy_Scheme_triggered()
 
 void EditorColorSchemeWidget::on_btnSchemeMenu_pressed()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): heap menu + popup() — exec() is the
+    // wall, and a stack menu would die at scope exit under popup.
+    auto *dbsMenuPtr = new QMenu(this);
+    dbsMenuPtr->setAttribute(Qt::WA_DeleteOnClose);
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu;
+#endif
 
     PColorScheme scheme = getCurrentScheme();
     if (scheme) {
@@ -403,11 +419,24 @@ void EditorColorSchemeWidget::on_btnSchemeMenu_pressed()
     QPoint p;
     p.setX(0);
     p.setY(ui->btnSchemeMenu->height()+2);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->btnSchemeMenu->mapToGlobal(p));
+#else
     menu.exec(ui->btnSchemeMenu->mapToGlobal(p));
+#endif
 }
 
 void EditorColorSchemeWidget::on_actionImport_Scheme_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable — importing a scheme
+    // reads a file from the local disk (static getter = exec()).
+    // The built-in schemes and every per-item color stay editable.
+    dbsWasmShowInfo(this, tr("Import Scheme"),
+                    tr("Importing a color scheme from a file is "
+                       "not available in the web version."));
+    return;
+#endif
     QString filename = QFileDialog::getOpenFileName(this,
         tr("Open"), QString(), tr("Color Scheme Files (*.scheme)"));
     if (filename.isEmpty())
@@ -420,7 +449,11 @@ void EditorColorSchemeWidget::on_actionImport_Scheme_triggered()
     name.remove(name.length()-suffix.length(),suffix.length());
     name.replace('_',' ');
     if (!mColorManager->isValidName(name)) {
+        #ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(this, tr("Error"), tr("'%1' is not a valid name for color scheme file."));
+#else
         QMessageBox::critical(this,tr("Error"),tr("'%1' is not a valid name for color scheme file."));
+#endif
         return;
     }
     try {
@@ -429,7 +462,11 @@ void EditorColorSchemeWidget::on_actionImport_Scheme_triggered()
         ui->cbScheme->addItem(name);
         ui->cbScheme->setCurrentText(name);
     } catch (FileError e) {
-        QMessageBox::critical(this,tr("Error"),e.reason());
+        #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Error"), e.reason());
+#else
+            QMessageBox::critical(this,tr("Error"),e.reason());
+#endif
         return;
     }
 }
@@ -437,6 +474,37 @@ void EditorColorSchemeWidget::on_actionImport_Scheme_triggered()
 void EditorColorSchemeWidget::on_actionRename_Scheme_triggered()
 {
     QString name = ui->cbScheme->currentText();
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): non-modal input dialog; the validate +
+    // rename + refresh body runs from textValueSelected.
+    {
+        auto *dialog = new QInputDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setInputMode(QInputDialog::TextInput);
+        dialog->setWindowTitle(tr("New scheme name"));
+        dialog->setLabelText(tr("New scheme name"));
+        dialog->setTextValue(name);
+        connect(dialog, &QInputDialog::textValueSelected, this,
+                [this, name](const QString &newName) {
+            if (!mColorManager->isValidName(newName)) {
+                dbsWasmShowInfo(this, tr("Error"),
+                                tr("'%1' is not a valid scheme name!").arg(newName));
+                return;
+            }
+            try {
+                mColorManager->rename(name, newName);
+                ui->cbScheme->setItemText(ui->cbScheme->currentIndex(), newName);
+                if (mModifiedSchemes.contains(name))
+                    mModifiedSchemes.remove(name);
+                mModifiedSchemes.insert(newName);
+            } catch (FileError e) {
+                dbsWasmShowInfo(this, tr("Error"), e.reason());
+            }
+        });
+        dialog->open();
+    }
+    return;
+#endif
     bool isOk;
     QString newName = QInputDialog::getText(this,tr("New scheme name"),tr("New scheme name"),
                                             QLineEdit::Normal,name,&isOk);
@@ -455,7 +523,11 @@ void EditorColorSchemeWidget::on_actionRename_Scheme_triggered()
                 mModifiedSchemes.remove(name);
             mModifiedSchemes.insert(newName);
         } catch(FileError e) {
+            #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Error"), e.reason());
+#else
             QMessageBox::critical(this,tr("Error"),e.reason());
+#endif
         }
     }
 }
@@ -472,13 +544,25 @@ void EditorColorSchemeWidget::on_actionReset_Scheme_triggered()
             //ui->cbScheme->view()->setFont(mDefaultSchemeComboFont);
         }
     } catch (FileError e) {
-        QMessageBox::critical(this,tr("Error"),e.reason());
+        #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Error"), e.reason());
+#else
+            QMessageBox::critical(this,tr("Error"),e.reason());
+#endif
     }
 
 }
 
 void EditorColorSchemeWidget::on_actionExport_Scheme_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable — exporting a scheme
+    // writes a file to the local disk (static getter = exec()).
+    dbsWasmShowInfo(this, tr("Export Scheme"),
+                    tr("Exporting a color scheme to a file is "
+                       "not available in the web version."));
+    return;
+#endif
     QString filename = QFileDialog::getSaveFileName(this,
         tr("Save"), QString(), tr("Color Scheme Files (*.scheme)"));
     if (filename.isEmpty())
@@ -487,7 +571,11 @@ void EditorColorSchemeWidget::on_actionExport_Scheme_triggered()
         PColorScheme scheme = getCurrentScheme();
         scheme->save(filename);
     } catch (FileError e) {
-        QMessageBox::critical(this,tr("Error"),e.reason());
+        #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Error"), e.reason());
+#else
+            QMessageBox::critical(this,tr("Error"),e.reason());
+#endif
         return;
     }
 }
@@ -496,6 +584,35 @@ void EditorColorSchemeWidget::on_actionDelete_Scheme_triggered()
 {
 
     QString name = ui->cbScheme->currentText();
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the static warning() exec()s — an
+    // async box instead; deletion runs only on an explicit Yes.
+    {
+        auto *box = new QMessageBox(QMessageBox::Warning,
+                    tr("Confirm Delete Scheme"),
+                    tr("Scheme '%1' will be deleted!<br />Do you really want to continue?").arg(name),
+                    QMessageBox::Yes | QMessageBox::No, this);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        connect(box, &QMessageBox::buttonClicked, this,
+                [this, box, name](QAbstractButton *button) {
+            if (button != box->button(QMessageBox::Yes))
+                return;
+            try {
+                if (mColorManager->remove(name)) {
+                    if (mModifiedSchemes.contains(name))
+                        mModifiedSchemes.remove(name);
+                    ui->cbScheme->removeItem(ui->cbScheme->currentIndex());
+                    if (name == pSettings->editor().colorScheme())
+                        doSave();
+                }
+            } catch (FileError e) {
+                dbsWasmShowInfo(this, tr("Error"), e.reason());
+            }
+        });
+        box->open();
+    }
+    return;
+#endif
     if (QMessageBox::warning(this,tr("Confirm Delete Scheme"),
                    tr("Scheme '%1' will be deleted!<br />Do you really want to continue?")
                    .arg(name),
@@ -510,7 +627,11 @@ void EditorColorSchemeWidget::on_actionDelete_Scheme_triggered()
                 doSave();
         }
     }  catch (FileError e) {
-        QMessageBox::critical(this,tr("Error"),e.reason());
+        #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Error"), e.reason());
+#else
+            QMessageBox::critical(this,tr("Error"),e.reason());
+#endif
     }
 }
 

@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "projectcompilerwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_projectcompilerwidget.h"
 #include "../settings.h"
 #include "../project.h"
@@ -147,25 +150,43 @@ void ProjectCompilerWidget::on_cbCompilerSet_currentIndexChanged(int index)
     if (pSet) {
         if (project->options().type==ProjectType::MicroController) {
             if (pSet->compilerType()!=CompilerType::SDCC) {
+                #ifdef __EMSCRIPTEN__
+                dbsWasmShowInfo(this,
+                                tr("Wrong Compiler Type"),
+                                tr("Compiler %1 can't compile a microcontroller project.").arg(pSet->name()));
+#else
                 QMessageBox::information(this,
                                          tr("Wrong Compiler Type"),
                                          tr("Compiler %1 can't compile a microcontroller project.").arg(pSet->name())
                                          );
+#endif
                 ui->cbCompilerSet->setCurrentIndex(project->options().compilerSet);
                 return;
             }
         } else {
             if (pSet->compilerType()==CompilerType::SDCC) {
+                #ifdef __EMSCRIPTEN__
+                dbsWasmShowInfo(this,
+                                tr("Wrong Compiler Type"),
+                                tr("Compiler %1 can only compile microcontroller project.").arg(pSet->name()));
+#else
                 QMessageBox::information(this,
                                          tr("Wrong Compiler Type"),
                                          tr("Compiler %1 can only compile microcontroller project.").arg(pSet->name())
                                          );
+#endif
                 ui->cbCompilerSet->setCurrentIndex(project->options().compilerSet);
                 return;
             }
         }
     }
 #endif
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the static warning() exec()s - take
+    // the safe default (No): keep the current compiler set.
+    ui->cbCompilerSet->setCurrentIndex(project->options().compilerSet);
+    return;
+#else
     if (QMessageBox::warning(
                 this,
                 tr("Change Project Compiler Set"),
@@ -177,6 +198,7 @@ void ProjectCompilerWidget::on_cbCompilerSet_currentIndexChanged(int index)
         ui->cbCompilerSet->setCurrentIndex(project->options().compilerSet);
         return;
     }
+#endif
     mOptions = pSet->compileOptions();
     mStaticLink = pSet->staticLink();
     mAddCharset = pSet->autoAddCharsetParams();

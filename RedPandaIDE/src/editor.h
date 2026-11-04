@@ -167,6 +167,15 @@ public:
     void saveFile(QString filename);
     bool save(bool force=false, bool doRreparse=true);
     bool saveAs(const QString& name="", bool doCheckSyntax = true);
+#ifdef __EMSCRIPTEN__
+    // Web build (Part 8): a browser page cannot keep a file it
+    // writes — the durable form of "save" is a browser download.
+    // Explicit save actions arm this flag so the next successful
+    // save()/saveAs() also downloads a copy; internal saves
+    // (compile prep, backups) leave it unset and stay silent.
+    void dbsRequestDownloadAfterSave() { mDbsDownloadAfterSave = true; }
+    void dbsDownloadSavedCopy();
+#endif
     void rename(const QString& newName);
     void setFilename(const QString& newName);
     QString caption();
@@ -455,6 +464,9 @@ private:
     //QTabWidget* mParentPageControl;
     bool mIsNew;
     bool mInProject;
+#ifdef __EMSCRIPTEN__
+    bool mDbsDownloadAfterSave = false;
+#endif
 
     bool mCodeCompletionEnabled;
 

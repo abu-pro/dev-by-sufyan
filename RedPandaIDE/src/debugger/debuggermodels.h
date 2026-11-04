@@ -26,7 +26,11 @@
 #include <QProcess>
 #include <QQueue>
 #include <QQueue>
+#ifdef DBS_WASM_ST
+#include "../wasmshim/qsemaphore_wasm.h" // QSemaphore is absent in the single-thread WASM kit (Part 6)
+#else
 #include <QSemaphore>
+#endif
 #include <QSet>
 #include <QThread>
 #include <QTimer>

@@ -95,6 +95,10 @@ target_link_libraries(qsynedit PUBLIC
 
 #add_library(qsynedit::test ALIAS qsynedit_test)
 
+# Dev by Sufyan WASM port (Part 2): same Embind link-glue problem as the
+# RedPandaIDE test executables — skip the test program for Emscripten.
+if(NOT EMSCRIPTEN)
+
 ################
 # Test program #
 ################
@@ -163,3 +167,5 @@ add_test(
     COMMAND test-qsynedit)
 
 add_dependencies(all-test-targets test-qsynedit)
+
+endif() # NOT EMSCRIPTEN (test-qsynedit)

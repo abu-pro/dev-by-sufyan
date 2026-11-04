@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "environmentshortcutwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_environmentshortcutwidget.h"
 #include "../mainwindow.h"
 #include "../widgets/shortcutinputedit.h"
@@ -138,10 +141,17 @@ bool EnvironmentShortcutModel::setData(const QModelIndex &index, const QVariant 
                     if (i==index.row())
                         continue;
                     if (s==mShortcuts[i]->shortcut)  {
+#ifdef __EMSCRIPTEN__
+                        dbsWasmShowInfo(nullptr,
+                                        tr("Error"),
+                                        tr("Shortcut \"%1\" is used by \"%2\".")
+                                        .arg(s,mShortcuts[i]->fullPath));
+#else
                         QMessageBox::critical(nullptr,
                                               tr("Error"),
                                               tr("Shortcut \"%1\" is used by \"%2\".")
                                               .arg(s,mShortcuts[i]->fullPath));
+#endif
                         return false;
                     }
                 }

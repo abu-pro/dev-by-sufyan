@@ -21,6 +21,10 @@
 #include <QVector>
 #include "../problems/ojproblemset.h"
 
+#ifdef __EMSCRIPTEN__
+struct DbsOnlineRunResult; // defined in compiler/onlinebackend.h
+#endif
+
 class OJProblemCasesRunner : public Runner
 {
     Q_OBJECT
@@ -60,6 +64,27 @@ signals:
     void logStderrOutput(const QString& msg);
 private:
     void runCase(int index, POJProblemCase problemCase);
+#ifdef __EMSCRIPTEN__
+    // Web build: run all cases through the online /api/run backend
+    // (no local process exists to spawn). Implemented in the .cpp.
+    void runOnlineCases();
+    // Helpers shared by the synchronous case loop and the
+    // single-thread async chain below.
+    QString onlineCaseInput(const POJProblemCase &problemCase);
+    void applyOnlineCaseResult(const POJProblemCase &problemCase,
+                               const DbsOnlineRunResult &result);
+#ifdef DBS_WASM_ST
+    // Part 6, single-thread build: cases are chained asynchronously
+    // (one request in flight; the reply for case i starts case i+1).
+    // terminated() is emitted when the chain ends — QThread::finished
+    // fires at run() return in this build and means nothing.
+    void runOnlineCaseAsync(int index);
+    void handleOnlineCaseResult(int index,
+                                const DbsOnlineRunResult &result);
+    QString mOnlineLanguage;
+    QString mOnlineCode;
+#endif // DBS_WASM_ST
+#endif // __EMSCRIPTEN__
 private:
     QVector<POJProblemCase> mProblemCases;
 

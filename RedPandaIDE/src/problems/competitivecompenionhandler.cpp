@@ -34,6 +34,16 @@ CompetitiveCompanionHandler::CompetitiveCompanionHandler(QObject *parent):
 
 void CompetitiveCompanionHandler::start()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 7 (the intermittent WASM startup abort): a browser can
+    // never accept TCP connections, so this listener always fails
+    // on the web ("Failed to listen!") — and the failure path then
+    // deletes the QThread while it may still be running, which
+    // aborts the whole WASM process roughly half the time during
+    // startup. Don't start the companion listener on the web at
+    // all; every other method already tolerates mThread == nullptr.
+    return;
+#endif
     if (!pSettings->executor().enableProblemSet())
         return;
     if (!pSettings->executor().enableCompetitiveCompanion())

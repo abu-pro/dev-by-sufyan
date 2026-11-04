@@ -451,3 +451,128 @@ bool dbsShowCustomizeHomeDialog(QWidget *parent,
     dbsSetPinnedHomeArt(packId, chosen);
     return true;
 }
+
+#ifdef __EMSCRIPTEN__
+#include <QMessageBox>
+// Part 9 (web build): the non-modal twin of
+// dbsShowCustomizeHomeDialog — identical contents and accept
+// behavior (the pin is written with dbsSetPinnedHomeArt on
+// accept), but the dialog is heap-allocated, shown with open(),
+// and reports through a continuation instead of blocking in
+// exec() (the WASM wall).
+void dbsShowCustomizeHomeDialogAsync(
+        QWidget *parent, const DbsThemePack *pack,
+        std::function<void(bool changed)> onDone)
+{
+    const QString packId = pack ? pack->id
+                                : QStringLiteral("classic");
+    const QStringList arts = pack ? pack->wallpapers
+                                  : dbsClassicArtworks();
+    if (arts.isEmpty()) {
+        onDone(false);
+        return;
+    }
+    const QString currentPin = dbsPinnedHomeArt(packId);
+
+    auto *dialog = new QDialog(parent);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->setWindowTitle(QCoreApplication::translate(
+                "dbs", "Customize Home"));
+    dialog->resize(680, 520);
+
+    auto *layout = new QVBoxLayout(dialog);
+    auto *label = new QLabel(QCoreApplication::translate("dbs",
+                "Choose the picture for the Home background. "
+                "\"Rotate all wallpapers\" shows a different one "
+                "each time."), dialog);
+    label->setWordWrap(true);
+    layout->addWidget(label);
+
+    auto *list = new QListWidget(dialog);
+    list->setViewMode(QListView::IconMode);
+    list->setIconSize(QSize(208, 117));
+    list->setGridSize(QSize(224, 160));
+    list->setResizeMode(QListView::Adjust);
+    list->setMovement(QListView::Static);
+    list->setSpacing(8);
+    auto addArt = [list](const QString &path, bool enabled) {
+        QPixmap pm(path);
+        auto *item = new QListWidgetItem(
+                    QIcon(pm.scaled(416, 234,
+                                    Qt::KeepAspectRatioByExpanding,
+                                    Qt::SmoothTransformation)),
+                    QFileInfo(path).completeBaseName());
+        item->setData(Qt::UserRole, path);
+        item->setSizeHint(QSize(216, 152));
+        if (!enabled)
+            item->setFlags(Qt::NoItemFlags);
+        list->addItem(item);
+        return item;
+    };
+    auto *rotate = new QListWidgetItem(QCoreApplication::translate(
+                "dbs", "Rotate all wallpapers"), list);
+    rotate->setData(Qt::UserRole, QString());
+    rotate->setSizeHint(QSize(216, 152));
+    int selectRow = 0;
+    int row = 1;
+    for (const QString &path : arts) {
+        addArt(path, true);
+        if (path == currentPin)
+            selectRow = row;
+        ++row;
+    }
+    if (pack) {
+        for (const QString &path : pack->backdropArt) {
+            auto *item = addArt(path, false);
+            item->setText(QCoreApplication::translate("dbs",
+                        "%1 (loading screen)")
+                          .arg(QFileInfo(path).completeBaseName()));
+            item->setToolTip(QCoreApplication::translate("dbs",
+                        "This one fills the whole frame, so it "
+                        "rotates through the loading screen and "
+                        "the window backdrop instead of Home."));
+        }
+    }
+    list->setCurrentRow(selectRow);
+    layout->addWidget(list, 1);
+
+    auto *buttons = new QDialogButtonBox(
+                QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
+                dialog);
+    layout->addWidget(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::accepted,
+                     dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected,
+                     dialog, &QDialog::reject);
+    QObject::connect(list, &QListWidget::itemDoubleClicked,
+                     dialog, [dialog](QListWidgetItem *) {
+        dialog->accept();
+    });
+    QObject::connect(dialog, &QDialog::accepted, dialog,
+                     [list, currentPin, packId, onDone]() {
+        QListWidgetItem *item = list->currentItem();
+        bool changed = false;
+        if (item) {
+            const QString chosen =
+                    item->data(Qt::UserRole).toString();
+            if (chosen != currentPin) {
+                dbsSetPinnedHomeArt(packId, chosen);
+                changed = true;
+            }
+        }
+        onDone(changed);
+    });
+    QObject::connect(dialog, &QDialog::rejected, dialog,
+                     [onDone]() { onDone(false); });
+    dialog->open();  // non-modal — never exec()
+}
+
+void dbsWasmShowInfo(QWidget *parent, const QString &title,
+                     const QString &text)
+{
+    auto *box = new QMessageBox(QMessageBox::Information, title,
+                                text, QMessageBox::Ok, parent);
+    box->setAttribute(Qt::WA_DeleteOnClose);
+    box->open();  // non-modal — the statics exec() under the hood
+}
+#endif // __EMSCRIPTEN__

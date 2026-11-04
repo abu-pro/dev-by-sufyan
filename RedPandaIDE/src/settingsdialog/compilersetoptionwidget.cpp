@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "compilersetoptionwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_compilersetoptionwidget.h"
 #include "../settings.h"
 #include "../mainwindow.h"
@@ -308,6 +311,18 @@ QString CompilerSetOptionWidget::getBinDir()
 
 void CompilerSetOptionWidget::on_btnFindCompilers_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
 #ifdef Q_OS_WIN
         QString msg = tr("Red Panda C++ will clear previously found compiler list and search"
                       " for compilers in the following locations:<br /> '%1'<br /> '%2'<br />Do you really want to continue?")
@@ -331,6 +346,18 @@ void CompilerSetOptionWidget::on_btnFindCompilers_clicked()
 
 void CompilerSetOptionWidget::on_btnAddBlankCompilerSet_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString name = QInputDialog::getText(this,tr("Compiler Set Name"),tr("Name"));
     name = name.trimmed();
     if (name.isEmpty())
@@ -344,6 +371,18 @@ void CompilerSetOptionWidget::on_btnAddBlankCompilerSet_clicked()
 
 void CompilerSetOptionWidget::on_btnAddCompilerSetByFolder_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString folder = QFileDialog::getExistingDirectory(this, tr("Compiler Folder"));
     int oldSize = pSettings->compilerSets().size();
 
@@ -359,6 +398,18 @@ void CompilerSetOptionWidget::on_btnAddCompilerSetByFolder_clicked()
 
 void CompilerSetOptionWidget::on_btnCopyCompilerSet_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     PCompilerSet set=pSettings->compilerSets().getSet(ui->cbCompilerSet->currentIndex());
     if (!set)
         return;
@@ -376,6 +427,18 @@ void CompilerSetOptionWidget::on_btnCopyCompilerSet_clicked()
 
 void CompilerSetOptionWidget::on_btnRenameCompilerSet_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     PCompilerSet set=pSettings->compilerSets().getSet(ui->cbCompilerSet->currentIndex());
     if (!set)
         return;
@@ -389,6 +452,18 @@ void CompilerSetOptionWidget::on_btnRenameCompilerSet_clicked()
 
 void CompilerSetOptionWidget::on_btnRemoveCompilerSet_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     PCompilerSet set=pSettings->compilerSets().getSet(ui->cbCompilerSet->currentIndex());
     if (!set)
         return;
@@ -454,6 +529,18 @@ void CompilerSetOptionWidget::on_cbEncodingDetails_currentTextChanged(const QStr
 
 void CompilerSetOptionWidget::on_btnChooseCCompiler_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Locate C Compiler"),
@@ -466,6 +553,18 @@ void CompilerSetOptionWidget::on_btnChooseCCompiler_clicked()
 
 void CompilerSetOptionWidget::on_btnChooseCppCompiler_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Locate C++ Compiler"),
@@ -478,6 +577,18 @@ void CompilerSetOptionWidget::on_btnChooseCppCompiler_clicked()
 
 void CompilerSetOptionWidget::on_btnChooseMake_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Locate Make"),
@@ -490,6 +601,18 @@ void CompilerSetOptionWidget::on_btnChooseMake_clicked()
 
 void CompilerSetOptionWidget::on_btnChooseGDB_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Locate GDB"),
@@ -502,6 +625,18 @@ void CompilerSetOptionWidget::on_btnChooseGDB_clicked()
 
 void CompilerSetOptionWidget::on_btnChooseGDBServer_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Locate GDB Server"),
@@ -514,6 +649,18 @@ void CompilerSetOptionWidget::on_btnChooseGDBServer_clicked()
 
 void CompilerSetOptionWidget::on_btnChooseResourceCompiler_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
         this,
         tr("Locate windres"),
@@ -526,6 +673,18 @@ void CompilerSetOptionWidget::on_btnChooseResourceCompiler_clicked()
 
 void CompilerSetOptionWidget::on_btnAddCompilerSetByFile_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): compiler sets are not used by the web
+    // version at all - it compiles with the fixed online
+    // compiler. Every action on this page drives local-disk
+    // scans, pickers or prompts (all exec() family), so they are
+    // honest-disabled together; the page itself still opens.
+    dbsWasmShowInfo(this, tr("Compiler Sets"),
+                    tr("Compiler sets are not used in the web "
+                       "version - it compiles with the online "
+                       "compiler."));
+    return;
+#endif
     QString file = QFileDialog::getOpenFileName(this, tr("Compiler"));
     if (file.isEmpty())
         return;

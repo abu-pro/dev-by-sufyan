@@ -11,6 +11,8 @@
 // live in mainwindow_rooms.cpp / roomclient; this file holds the rest.
 #include "../mainwindow.h"
 #include "ui_mainwindow.h"
+#include "../project.h"
+#include "../systemconsts.h"
 
 #include <QAbstractButton>
 #include <QAbstractItemView>
@@ -21,6 +23,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QFile>
+#include <QBuffer>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -39,6 +42,9 @@
 #include <QPlainTextEdit>
 #include <QPointer>
 #include <QProcess>
+#ifdef __EMSCRIPTEN__
+#include "../wasmshim/qprocess_wasm.h" // QProcess is absent in Qt for WebAssembly
+#endif
 #include <QProgressDialog>
 #include <QPushButton>
 #include <QRadioButton>
@@ -1926,6 +1932,40 @@ void MainWindow::setupDbsFeatures()
     // neither check can block or cover it.
     QTimer::singleShot(1500, this, [this]() { dbsCheckRecovery(); });
     QTimer::singleShot(6000, this, [this]() { dbsCheckForUpdates(false); });
+#ifdef __EMSCRIPTEN__
+    // Part 9 Stage 3: if the IDBFS populate landed AFTER main()'s
+    // loadLastOpens() attempt (the session file simply wasn't
+    // there yet), restore the session once the home is in. The
+    // check repeats on a short schedule (4/10/20/35 s): a single
+    // early retry proved too soon on the slower single-thread
+    // build, whose populate can land later. It stops the moment
+    // an attempt has seen the file (mDbsWasmLastOpensFileSeen is
+    // set inside loadLastOpens), so it can never double-restore;
+    // and loadLastOpens only ever ADDS tabs — nothing the user
+    // opened meanwhile is closed or replaced.
+    {
+        auto dbsRetryRestore = std::make_shared<std::function<void(int)>>();
+        *dbsRetryRestore = [this, dbsRetryRestore](int attempt) {
+            if (mDbsWasmLastOpensFileSeen)
+                return;
+            const QString f =
+                includeTrailingPathDelimiter(pSettings->dirs().config())
+                + DEV_LASTOPENS_FILE;
+            if (QFile::exists(f)) {
+                loadLastOpens();
+                return;
+            }
+            static const int delays[] = {4000, 6000, 10000, 15000};
+            if (attempt < 4)
+                QTimer::singleShot(delays[attempt], this,
+                                   [dbsRetryRestore, attempt]() {
+                                       (*dbsRetryRestore)(attempt + 1);
+                                   });
+        };
+        QTimer::singleShot(4000, this,
+                           [dbsRetryRestore]() { (*dbsRetryRestore)(1); });
+    }
+#endif
 
     // Headless verification hooks (used by the sandbox screenshot rig;
     // harmless in production: they only act when the variables exist).
@@ -2028,10 +2068,67 @@ void MainWindow::setupDbsFeatures()
 // Part 1 — quick save + recovery drafts
 // ---------------------------------------------------------------------------
 
+#ifdef __EMSCRIPTEN__
+// Part 9 Stage 3: continuous last-opens writer for the browser
+// build. Natively, saveLastOpens() runs only from closeEvent —
+// and a browser tab NEVER fires closeEvent (the page just dies on
+// reload/close), so the session list was never written under WASM
+// and loadLastOpens() found nothing to restore: the production
+// "reload shows only Home" failure. This writer mirrors
+// saveLastOpens()' JSON exactly, minus its modal parts: no Save
+// prompt (untitled editors are skipped — their content is covered
+// by the recovery drafts next door) and no error dialogs. It
+// rides the 30 s quick-save tick (which also fires when the app
+// loses activation), so the list is never more than a tick stale,
+// and it persists through the IDBFS home like every other file.
+void MainWindow::dbsWasmSaveLastOpens()
+{
+    QJsonObject rootObj;
+    if (mProject)
+        rootObj["lastProject"] = mProject->filename();
+    QJsonArray filesArray;
+    for (int i = 0; i < mEditorManager->pageCount(); i++) {
+        Editor *editor = (*mEditorManager)[i];
+        if (!editor || editor->isNew())
+            continue;
+        QJsonObject fileObj;
+        fileObj["filename"] = editor->filename();
+        fileObj["onLeft"] =
+            (mEditorManager->findPageControlForEditor(editor)
+             != mEditorManager->rightPageWidget());
+        fileObj["focused"] = editor->hasFocus();
+        fileObj["caretX"] = editor->caretX();
+        fileObj["caretY"] = editor->caretY();
+        fileObj["top"] = editor->topPos();
+        fileObj["left"] = editor->leftPos();
+        fileObj["fileType"] = fileTypeToName(editor->fileType());
+        fileObj["encodingOption"] =
+            QLatin1String(editor->editorEncoding());
+        fileObj["contextFile"] = editor->contextFile();
+        fileObj["readonly"] = editor->readOnly();
+        filesArray.append(fileObj);
+    }
+    rootObj["files"] = filesArray;
+    const QByteArray json = QJsonDocument(rootObj).toJson();
+    const QString filename =
+        includeTrailingPathDelimiter(pSettings->dirs().config())
+        + DEV_LASTOPENS_FILE;
+    QFile existing(filename);
+    if (existing.open(QFile::ReadOnly) && existing.readAll() == json)
+        return; // unchanged session — nothing to write
+    QFile file(filename);
+    if (file.open(QFile::WriteOnly | QFile::Truncate))
+        file.write(json);
+}
+#endif
+
 void MainWindow::dbsSaveTick()
 {
     if (mQuitting || !quickSaveEnabled())
         return;
+#ifdef __EMSCRIPTEN__
+    dbsWasmSaveLastOpens();
+#endif
     QSet<Editor *> memberEditors;
     for (auto it = mMemberEditors.constBegin();
          it != mMemberEditors.constEnd(); ++it)
@@ -2114,6 +2211,81 @@ void MainWindow::dbsCheckRecovery()
         return;
     }
 
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the recovery prompt must not exec() -
+    // with persistent storage (Part 9 IDBFS) this dialog is on
+    // the startup path after every crash or closed tab, so it is
+    // shown non-modally and Restore/Discard run from the button
+    // continuation. "Later" (and closing the dialog) keeps the
+    // drafts file for next launch, exactly like native.
+    {
+        auto *dialog = new QDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setWindowTitle(tr("Recover unsaved work?"));
+        auto *layout = new QVBoxLayout(dialog);
+        QStringList lines;
+        for (const Draft &draft : pending)
+            lines << tr("%1 — last saved %2")
+                     .arg(draft.title.isEmpty() ? draft.filename : draft.title,
+                          QDateTime::fromMSecsSinceEpoch(draft.savedAt)
+                          .toString("yyyy-MM-dd hh:mm"));
+        layout->addWidget(new QLabel(
+                    tr("Dev by Sufyan kept drafts of work that was not saved "
+                       "before the app closed:\n\n%1\n\nRestore them now?")
+                    .arg(lines.join("\n")), dialog));
+        auto *buttons = new QDialogButtonBox(dialog);
+        buttons->addButton(tr("Restore"), QDialogButtonBox::AcceptRole);
+        buttons->addButton(tr("Discard drafts"), QDialogButtonBox::DestructiveRole);
+        buttons->addButton(tr("Later"), QDialogButtonBox::RejectRole);
+        layout->addWidget(buttons);
+        connect(buttons, &QDialogButtonBox::clicked, this,
+                [this, dialog, buttons, pending](QAbstractButton *button) {
+            const QDialogButtonBox::ButtonRole role =
+                    buttons->buttonRole(button);
+            dialog->close();
+            if (role == QDialogButtonBox::RejectRole)
+                return; // "Later" keeps the drafts for next launch.
+            const bool discard =
+                    (role == QDialogButtonBox::DestructiveRole);
+            QFile::remove(draftsFilePath());
+            if (discard)
+                return;
+            QString recoveredDir = QStandardPaths::writableLocation(
+                        QStandardPaths::AppDataLocation) + "/recovered";
+            QDir().mkpath(recoveredDir);
+            for (const Draft &draft : pending) {
+                if (QFileInfo(draft.filename).isAbsolute()
+                        && QFile::exists(draft.filename)) {
+                    if (Editor *editor = openFile(draft.filename)) {
+                        editor->setContent(draft.code);
+                        editor->setModified(true);
+                    }
+                } else {
+                    QString name = draft.title.isEmpty()
+                            ? QString("recovered") : draft.title;
+                    name.replace(QRegularExpression("[^A-Za-z0-9_.-]"), "_");
+                    if (!name.contains('.'))
+                        name += ".cpp";
+                    QString path = recoveredDir + "/" + name;
+                    int n = 2;
+                    while (QFile::exists(path))
+                        path = recoveredDir + "/"
+                                + QString::number(n++) + "_" + name;
+                    QFile out(path);
+                    if (out.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                        out.write(draft.code.toUtf8());
+                        out.close();
+                        openFile(path);
+                    }
+                }
+            }
+            statusBar()->showMessage(
+                        tr("Recovered %1 unsaved draft(s).").arg(pending.size()), 8000);
+        });
+        dialog->open();
+    }
+    return;
+#endif
     QDialog dialog(this);
     dialog.setWindowTitle(tr("Recover unsaved work?"));
     auto *layout = new QVBoxLayout(&dialog);
@@ -2190,6 +2362,19 @@ void MainWindow::dbsCheckRecovery()
 
 void MainWindow::dbsCheckForUpdates(bool manual)
 {
+#ifdef __EMSCRIPTEN__
+    // Web build: the app never self-updates — the deployed page always
+    // serves the latest version and there is no installer to download
+    // or run. Both the automatic start-up check and the manual menu
+    // entry end here.
+    if (manual) {
+        // Part 9: non-modal (the static information() exec()s).
+        dbsWasmShowInfo(this, tr("Check for Updates"),
+                        tr("You are using the web version of Dev by Sufyan — "
+                           "it is always up to date."));
+    }
+    return;
+#endif
     auto *net = new QNetworkAccessManager(this);
     QNetworkRequest request{
         QUrl("https://api.github.com/repos/abu-pro/dev-by-sufyan/releases/latest")};
@@ -2312,7 +2497,14 @@ void MainWindow::dbsDownloadAndInstallUpdate(const QString &url,
 // Part 7 — Run All & Compare
 // ---------------------------------------------------------------------------
 
-namespace {
+// Portability fix (found by the WASM port, Part 2): RunAllState used
+// to live in the anonymous namespace below, and
+// std::make_shared<RunAllState>() then fails to compile under
+// Emscripten's libc++ — its __compressed_pair storage rejects the
+// static_casts for a no-linkage (anonymous-namespace) type.
+// libstdc++ accepts both forms, so giving the type a named namespace
+// is a portable, behaviour-neutral fix on every platform.
+namespace dbs_runall_detail {
 
 struct RunAllState {
     QVector<RunAllJob> jobs;
@@ -2327,6 +2519,11 @@ struct RunAllState {
     QTimer *timer = nullptr;
     QString buffer;
 };
+
+} // namespace dbs_runall_detail
+using dbs_runall_detail::RunAllState;
+
+namespace {
 
 QString previewOf(const QString &text)
 {
@@ -2616,9 +2813,14 @@ void MainWindow::dbsRunAllCompare()
         return;
     }
     if (!mRoomClient->isAdmin()) {
+#ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(this, tr("Run All & Compare"),
+                        tr("Only the room admin can run everyone's code."));
+#else
         QMessageBox::information(
                     this, tr("Run All & Compare"),
                     tr("Only the room admin can run everyone's code."));
+#endif
         return;
     }
     QVector<RunAllJob> jobs;
@@ -2649,6 +2851,16 @@ void MainWindow::dbsRunAllCompare()
     compilers.pythonExe = QStandardPaths::findExecutable("python3");
     if (compilers.pythonExe.isEmpty())
         compilers.pythonExe = QStandardPaths::findExecutable("python");
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the results dialog is self-contained -
+    // show it non-modally (exec() is the wall).
+    {
+        auto *dialog = new RunAllDialog(jobs, compilers, this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    }
+    return;
+#endif
     RunAllDialog dialog(jobs, compilers, this);
     dialog.exec();
 }
@@ -2738,6 +2950,55 @@ void MainWindow::dbsSaveCodePhoto()
                                     "the current file."), 5000);
         return;
     }
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the scale dialog non-modally, and the
+    // "save" is a browser download of the rendered PNG (the
+    // sanctioned QFileDialog::saveFileContent, as in Part 8) -
+    // both native steps are exec() family.
+    {
+        auto *scaleDialog = new QDialog(this);
+        scaleDialog->setAttribute(Qt::WA_DeleteOnClose);
+        scaleDialog->setWindowTitle(tr("Save Code as Photo"));
+        auto *layout = new QVBoxLayout(scaleDialog);
+        layout->addWidget(new QLabel(tr("Photo size:")));
+        auto *oneX = new QRadioButton(tr("Normal (1x)"));
+        auto *twoX = new QRadioButton(tr("Big and sharp (2x) — best for sharing"));
+        twoX->setChecked(true);
+        layout->addWidget(oneX);
+        layout->addWidget(twoX);
+        auto *buttons = new QDialogButtonBox(
+                    QDialogButtonBox::Ok | QDialogButtonBox::Cancel, scaleDialog);
+        connect(buttons, &QDialogButtonBox::accepted, scaleDialog, &QDialog::accept);
+        connect(buttons, &QDialogButtonBox::rejected, scaleDialog, &QDialog::reject);
+        layout->addWidget(buttons);
+        QPointer<Editor> editorGuard(editor);
+        connect(scaleDialog, &QDialog::accepted, this,
+                [this, editorGuard, oneX]() {
+            if (!editorGuard)
+                return;
+            const int scale = oneX->isChecked() ? 1 : 2;
+            QString defaultName = QFileInfo(editorGuard->filename()).completeBaseName();
+            if (defaultName.isEmpty())
+                defaultName = "code";
+            const QString tempPath = QDir::temp().filePath(
+                        defaultName + "-photo.png");
+            dbsSaveCodePhotoTo(editorGuard, scale, tempPath);
+            QFile file(tempPath);
+            if (file.open(QIODevice::ReadOnly)) {
+                const QByteArray bytes = file.readAll();
+                file.close();
+                QFile::remove(tempPath);
+                QFileDialog::saveFileContent(
+                            bytes, defaultName + "-photo.png", this);
+                statusBar()->showMessage(
+                            tr("Saved a photo of the code to %1.")
+                            .arg(defaultName + "-photo.png"), 5000);
+            }
+        });
+        scaleDialog->open();
+    }
+    return;
+#endif
     QDialog scaleDialog(this);
     scaleDialog.setWindowTitle(tr("Save Code as Photo"));
     auto *layout = new QVBoxLayout(&scaleDialog);
@@ -3370,11 +3631,6 @@ FlowchartDialog::FlowchartDialog(const QString &code, const QString &title,
     layout->addLayout(row);
     connect(closeButton, &QPushButton::clicked, this, &QDialog::accept);
     connect(saveButton, &QPushButton::clicked, this, [this, chart]() {
-        QString path = QFileDialog::getSaveFileName(
-                    this, tr("Save flowchart"), "flowchart.png",
-                    tr("PNG images (*.png)"));
-        if (path.isEmpty())
-            return;
         // Render at 2x for a crisp image.
         QSize size = chart->contentSize();
         QPixmap pixmap(size * 2);
@@ -3383,6 +3639,24 @@ FlowchartDialog::FlowchartDialog(const QString &code, const QString &title,
         painter.scale(2, 2);
         chart->render(&painter);
         painter.end();
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): the save is a browser download of
+        // the PNG bytes (getSaveFileName is an exec()).
+        {
+            QByteArray bytes;
+            QBuffer buffer(&bytes);
+            buffer.open(QIODevice::WriteOnly);
+            pixmap.save(&buffer, "PNG");
+            buffer.close();
+            QFileDialog::saveFileContent(bytes, "flowchart.png", this);
+        }
+        return;
+#endif
+        QString path = QFileDialog::getSaveFileName(
+                    this, tr("Save flowchart"), "flowchart.png",
+                    tr("PNG images (*.png)"));
+        if (path.isEmpty())
+            return;
         pixmap.save(path, "PNG");
     });
 }

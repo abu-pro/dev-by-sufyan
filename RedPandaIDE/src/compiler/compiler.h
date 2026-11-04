@@ -24,6 +24,9 @@
 #include "../utils/file.h"
 
 class Project;
+#ifdef __EMSCRIPTEN__
+struct DbsOnlineRunResult; // defined in compiler/onlinebackend.h
+#endif
 class Compiler : public QThread
 {
     Q_OBJECT
@@ -87,6 +90,34 @@ protected:
             QSet<QString>& parsedFiles);
     void log(const QString& msg);
     void error(const QString& msg);
+#ifdef __EMSCRIPTEN__
+    // Web build only: compile (or syntax-check) the current file
+    // through the online /api/run backend instead of a local compiler
+    // process. Called from run(); implemented in compiler.cpp.
+    void runOnlineCompile();
+    // Shared front half: validates the file, logs the header and
+    // extracts the source text (editor buffer or saved file). Throws
+    // CompileError for projects and unsupported file types.
+    void onlineCompilePrologue(QString &language, QString &code);
+    // Shared back half of both online compile flavours: consumes one
+    // backend result (diagnostics -> issues, result log, placeholder
+    // executable). Returns false WITHOUT signalling when the request
+    // itself failed, so the caller can report the network error in
+    // its own flavour (throw on a worker thread / signal directly on
+    // the main thread).
+    bool applyOnlineCompileResult(const DbsOnlineRunResult &result,
+                                  const QString &language);
+#ifdef DBS_WASM_ST
+    // Part 6, single-thread build: asynchronous variant — the front
+    // half runs in run() on the main thread and starts the request;
+    // the continuation applies the result and only then emits
+    // compileFinished (QThread::finished fires at run() return in
+    // this build and must not be treated as completion).
+    void runOnlineCompileAsync();
+    void finishOnlineCompile(const DbsOnlineRunResult &result,
+                             const QString &language);
+#endif // DBS_WASM_ST
+#endif // __EMSCRIPTEN__
     void runCommand(const QString& cmd, const QStringList& arguments, const QString& workingDir, const QByteArray& inputText=QByteArray(), const QString& outputFile=QString());
     QString escapeCommandForLog(const QString &cmd, const QStringList &arguments);
 

@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "environmentfileassociationwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_environmentfileassociationwidget.h"
 #include "../systemconsts.h"
 #include "../settings.h"
@@ -125,9 +128,15 @@ void FileAssociationModel::saveAssociations()
             );
         }
         if (!ok) {
+            #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(nullptr,
+                            tr("Register File Association Error"),
+                            tr("Don't have privilege to register file types!"));
+#else
             QMessageBox::critical(nullptr,
                                   tr("Register File Association Error"),
                                   tr("Don't have privilege to register file types!"));
+#endif
             return;
         }
     }
@@ -144,9 +153,15 @@ void FileAssociationModel::saveAssociations()
             ok = unregisterFileType(fileType);
         }
         if (!ok) {
+            #ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(nullptr,
+                            tr("Register File Type Error"),
+                            tr("Don't have privilege to register file types!"));
+#else
             QMessageBox::critical(nullptr,
                                   tr("Register File Type Error"),
                                   tr("Don't have privilege to register file types!"));
+#endif
             return;
         }
     }

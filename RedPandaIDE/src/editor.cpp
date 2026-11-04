@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "editor.h"
+#ifdef __EMSCRIPTEN__
+#include "rooms/dbstheme.h"
+#endif
 
 #include <QtCore/QFileInfo>
 #include <QFont>
@@ -259,6 +262,22 @@ void Editor::saveFile(QString filename) {
         emit fileEncodingChanged(this);
 }
 
+#ifdef __EMSCRIPTEN__
+void Editor::dbsDownloadSavedCopy()
+{
+    // The file was just written to the in-memory filesystem; read
+    // those exact bytes back and hand them to the browser as a
+    // download — the only durable copy a web page can give the user.
+    QFile file(mFilename);
+    if (!file.open(QIODevice::ReadOnly))
+        return;
+    QByteArray bytes = file.readAll();
+    file.close();
+    QFileDialog::saveFileContent(bytes, QFileInfo(mFilename).fileName(),
+                                 parentWidget());
+}
+#endif
+
 void Editor::convertToEncoding(const QByteArray &encoding)
 {
     if (mEditorEncoding == encoding)
@@ -295,11 +314,25 @@ bool Editor::save(bool force, bool doReparse) {
     } catch (FileError& exception) {
         if (mFileSystemWatcher)
             mFileSystemWatcher->addPath(mFilename);
+#ifdef __EMSCRIPTEN__
+        mDbsDownloadAfterSave = false;
+#endif
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): non-modal twin (statics exec()).
+        dbsWasmShowInfo(parentWidget(), tr("Save Error"), exception.reason());
+#else
         QMessageBox::critical(parentWidget(),tr("Save Error"), exception.reason());
+#endif
         emit fileSaveError(this, mFilename, exception.reason());
         return false;
     }
 
+#ifdef __EMSCRIPTEN__
+    if (mDbsDownloadAfterSave) {
+        mDbsDownloadAfterSave = false;
+        dbsDownloadSavedCopy();
+    }
+#endif
     if (doReparse && isVisible()) {
         reparse();
         if (mEditorSettings->syntaxCheckWhenSave())
@@ -314,6 +347,14 @@ bool Editor::saveAs(const QString &name, bool doCheckSyntax){
     QString newName = name;
     QString oldName = mFilename;
     if (name.isEmpty()) {
+#ifdef __EMSCRIPTEN__
+        // Web build: the Save As dialog below runs exec(), which
+        // wedges the page (Part 8) — and a browser has no real
+        // location to pick anyway. Keep the current file name, save
+        // as usual, and deliver the bytes as a browser download
+        // (armed by dbsRequestDownloadAfterSave at the call sites).
+        newName = mFilename;
+#else
         QString selectedFileFilter;
         QString defaultExt;
         defaultExt=QFileInfo(oldName).suffix();
@@ -360,11 +401,24 @@ bool Editor::saveAs(const QString &name, bool doCheckSyntax){
             }
         }
         QDir::setCurrent(extractFileDir(newName));
+#endif
     }
 
-    if (mGetOpennedEditorFunc && mGetOpennedEditorFunc(newName)!=nullptr) {
+    if (mGetOpennedEditorFunc && mGetOpennedEditorFunc(newName)!=nullptr
+#ifdef __EMSCRIPTEN__
+        // Web build: saveAs keeps this editor's own name (see
+        // above), so finding THIS editor under newName is expected,
+        // not a conflict.
+        && newName != mFilename
+#endif
+        ) {
+#ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(parentWidget(), tr("Error"),
+                        tr("File %1 already opened!").arg(newName));
+#else
         QMessageBox::critical(parentWidget(),tr("Error"),
                                       tr("File %1 already opened!").arg(newName));
+#endif
         return false;
     }
     // Update project information
@@ -415,11 +469,25 @@ bool Editor::saveAs(const QString &name, bool doCheckSyntax){
     }  catch (FileError& exception) {
         if (mFileSystemWatcher)
             mFileSystemWatcher->addPath(mFilename);
+#ifdef __EMSCRIPTEN__
+        mDbsDownloadAfterSave = false;
+#endif
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): non-modal twin (statics exec()).
+        dbsWasmShowInfo(parentWidget(), tr("Save Error"), exception.reason());
+#else
         QMessageBox::critical(parentWidget(),tr("Save Error"), exception.reason());
+#endif
         emit fileSaveError(this, mFilename, exception.reason());
         return false;
     }
 
+#ifdef __EMSCRIPTEN__
+    if (mDbsDownloadAfterSave) {
+        mDbsDownloadAfterSave = false;
+        dbsDownloadSavedCopy();
+    }
+#endif
     initAutoBackup();
     return true;
 }
@@ -476,18 +544,34 @@ void Editor::setEditorEncoding(const QByteArray& encoding) noexcept{
     mEditorEncoding = newEncoding;
     if (!isNew()) {
         if (modified()) {
+#ifdef __EMSCRIPTEN__
+            // Part 9 (web build): the reload prompt is a static
+            // exec() — take the native "No" path instead (keep the
+            // edits, skip the reload) and say why, non-modally.
+            dbsWasmShowInfo(this, tr("Confirm Reload File"),
+                            tr("The file has unsaved changes, so it "
+                               "was not reloaded for the encoding "
+                               "change. Save it first, then change "
+                               "the encoding."));
+            return;
+#else
             if (QMessageBox::warning(this,tr("Confirm Reload File"),
                            tr("The editing file will be reloaded. <br />All unsaved modifications will be lost. <br />Are you sure to continue?"),
                            QMessageBox::Yes, QMessageBox::No)!=QMessageBox::Yes)
                 return;
+#endif
         }
         try {
             loadFile();
             setModified(false);
         } catch (FileError& e) {
+#ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Error Load File"), e.reason());
+#else
             QMessageBox::critical(nullptr,
                                   tr("Error Load File"),
                                   e.reason());
+#endif
         }
     }
     emit editorEncodingChanged(this);
@@ -3152,6 +3236,16 @@ void Editor::insertCodeSnippet(const QString &code)
 
 void Editor::print()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable — there are no printers
+    // in a browser (and QPrintDialog's exec() is the wall). To
+    // print the code, Save it (it downloads) and print the file.
+    dbsWasmShowInfo(this, tr("Print"),
+                    tr("Printing is not available in the web "
+                       "version. Save the file (it downloads to "
+                       "your computer) and print it from there."));
+    return;
+#endif
     Q_ASSERT(mColorManager!=nullptr);
     QPrinter printer;
 
@@ -5228,9 +5322,13 @@ void Editor::reformat(bool doReparse)
     QString newContent = formatter->refomat(text(),errorMessage,isOk);
     if (!isOk) {
         if (!errorMessage.isEmpty()) {
+#ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(this, tr("Reformat Error"), errorMessage);
+#else
             QMessageBox::critical(this,
                                   tr("Reformat Error"),
                                   errorMessage);
+#endif
         }
         return;
     }

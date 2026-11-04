@@ -49,6 +49,16 @@
 #include <QSet>
 #include "rooms/roomclient.h"
 
+#ifdef __EMSCRIPTEN__
+// Part 9 (web build): terminal-style window for online Run output.
+class DbsTerminalWindow;
+struct DbsOnlineRunResult;
+// Part 9: Settings dialogs are shown non-modally on the web and
+// kept alive in MainWindow members until they finish.
+class SettingsDialog;
+using PSettingsDialog = std::shared_ptr<SettingsDialog>;
+#endif
+
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -268,6 +278,16 @@ public slots:
     void onCompileErrorOccured(const QString& reason);
     void onRunErrorOccured(const QString& reason);
     void onRunFinished();
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the terminal window's side of the online
+    // run plumbing — see dbsWasmEnsureTerminal & friends in
+    // mainwindow.cpp. Run output and run errors go to the terminal
+    // window, never to a QMessageBox (the exec() wall).
+    void dbsWasmEnsureTerminal(const QString &sourceFile, const QString &exeName, const QString &workDir, const QString &stdinText);
+    void dbsWasmShowRunResult(const DbsOnlineRunResult &result);
+    void dbsWasmShowRunError(const QString &reason);
+    void dbsWasmRunFailedLine(const QString &text);
+#endif
     void onRunPausingForFinish();
     void onRunProblemFinished();
     void onOJProblemCaseStarted(const QString& id, int current, int total);
@@ -375,6 +395,13 @@ private:
     void setupDbsFeatures();
     void dbsSaveTick();
     void dbsCheckRecovery();
+#ifdef __EMSCRIPTEN__
+    // Part 9 Stage 3: continuous last-opens writer (the browser
+    // never fires closeEvent, so saveLastOpens() never runs there)
+    // + populate-race bookkeeping for loadLastOpens().
+    void dbsWasmSaveLastOpens();
+    bool mDbsWasmLastOpensFileSeen = false;
+#endif
     void dbsExplainIssueAt(const QModelIndex &index);
     // v1.5.1 Fix Lagao + Fix & Recheck.
     bool dbsApplyFixToEditor(const PCompileIssue &issue,
@@ -430,6 +457,13 @@ private:
     void refreshHomePage();
     void onWelcomeNewDocument();
     void onWelcomeTemplates();
+#ifdef __EMSCRIPTEN__
+    // Part 8 (WASM only): continuation for the async template
+    // picker. QMenu::exec() spins forever on Qt WASM without
+    // asyncify, so the WASM picker uses popup() + triggered()
+    // and lands here with the action's data value.
+    void dbsCreateFromTemplate(int dataValue);
+#endif
     void onWelcomeRecentFile(const QString &filename);
     void selectRoomsTab(int index);
     void buildContextMenus();
@@ -452,6 +486,12 @@ private:
     void showSearchReplacePanel(bool show);
     void clearIssues();
     void doCompileRun(RunType runType);
+#ifdef __EMSCRIPTEN__
+    DbsTerminalWindow *dbsWasmTerminal();
+    void dbsWasmOpenTerminalForRun();
+    void dbsWasmTerminalCompileFailed();
+    void dbsWasmOnTerminalRerun();
+#endif
     void doGenerateAssembly();
     void doGenerateGimple();
     void doGeneratePreprocessed();
@@ -1102,6 +1142,11 @@ private:
 
     QComboBox *mCompilerSet;
     CompilerManager *mCompilerManager;
+#ifdef __EMSCRIPTEN__
+    QPointer<DbsTerminalWindow> mDbsTerminal;
+    PSettingsDialog mDbsWasmOptionsDialog;
+    PSettingsDialog mDbsWasmProjectOptionsDialog;
+#endif
     Debugger *mDebugger;
     CPUDialog *mCPUDialog;
     SearchInFileDialog *mSearchInFilesDialog;

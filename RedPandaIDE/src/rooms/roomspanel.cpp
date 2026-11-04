@@ -555,6 +555,37 @@ void RoomsPanel::onMemberContextMenu(const QPoint &pos)
             : tr("Restrict editing"));
         kickAction = menu.addAction(tr("Kick"));
     }
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): QMenu::exec() wedges the page - a heap
+    // menu + popup() with the dispatch in the triggered signal.
+    {
+        auto *heapMenu = new QMenu(this);
+        heapMenu->setStyleSheet(menu.styleSheet());
+        QAction *hOpen = heapMenu->addAction(openAction->text());
+        QAction *hRestrict = nullptr;
+        QAction *hKick = nullptr;
+        if (restrictAction) {
+            hRestrict = heapMenu->addAction(restrictAction->text());
+            hKick = heapMenu->addAction(kickAction->text());
+        }
+        const bool wasRestricted = (info && info->restricted);
+        connect(heapMenu, &QMenu::triggered, this,
+                [this, heapMenu, hOpen, hRestrict, hKick,
+                 memberId, wasRestricted](QAction *chosen) {
+            if (chosen == hOpen)
+                emit openMemberRequested(memberId);
+            else if (hRestrict && chosen == hRestrict)
+                emit restrictRequested(memberId, !wasRestricted);
+            else if (hKick && chosen == hKick)
+                emit kickRequested(memberId);
+            heapMenu->deleteLater();
+        });
+        connect(heapMenu, &QMenu::aboutToHide, heapMenu,
+                [heapMenu]() { heapMenu->deleteLater(); });
+        heapMenu->popup(mMembersList->mapToGlobal(pos));
+    }
+    return;
+#endif
     QAction *chosen = menu.exec(mMembersList->mapToGlobal(pos));
     if (chosen == openAction)
         emit openMemberRequested(memberId);

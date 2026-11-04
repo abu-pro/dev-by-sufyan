@@ -19,6 +19,9 @@
 
 #include "debugger.h"
 #include <QProcess>
+#ifdef __EMSCRIPTEN__
+#include "../wasmshim/qprocess_wasm.h" // QProcess is absent in Qt for WebAssembly
+#endif
 #include <QByteArray>
 #include <QList>
 #include <QMap>

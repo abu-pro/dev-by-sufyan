@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "projectdllhostwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_projectdllhostwidget.h"
 #include "../project.h"
 #include "../mainwindow.h"
@@ -48,6 +51,16 @@ void ProjectDLLHostWidget::doSave()
 
 void ProjectDLLHostWidget::on_btnBrowse_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): local file/folder picker (static
+    // getter = exec()) - honest-disable, see the other settings
+    // pickers. The path field stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString currentFile=ui->txtHost->text();
     if (currentFile.isEmpty()) {
         currentFile = pMainWindow->project()->directory();

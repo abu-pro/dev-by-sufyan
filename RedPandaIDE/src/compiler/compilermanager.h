@@ -83,6 +83,14 @@ public:
     MainWindow *mainWindow() const;
     void setMainWindow(MainWindow *newMainWindow);
 
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): stdin for the NEXT online run only,
+    // overriding the redirect-input file — set by the terminal
+    // window's "Run again with this input". Consumed (and
+    // cleared) by the next run() that reaches the online path.
+    void dbsWasmSetStdinOverride(const QString &text);
+#endif
+
 signals:
     void signalStopAllRunners();
     void compileFinished(const QString& filename, bool isSyntaxCheck);
@@ -109,6 +117,10 @@ private:
     int mSyntaxCheckIssueCount;
     Compiler* mBackgroundSyntaxChecker;
     Runner* mRunner;
+#ifdef __EMSCRIPTEN__
+    bool mDbsWasmStdinOverrideSet = false;
+    QString mDbsWasmStdinOverride;
+#endif
     PNonExclusiveTemporaryFileOwner mTempFileOwner;
     mutable QRecursiveMutex mCompileMutex;
     mutable QRecursiveMutex mBackgroundSyntaxCheckMutex;

@@ -2008,6 +2008,18 @@ void CompilerSets::loadSets()
 //        }
         return;
     } else {
+#ifdef __EMSCRIPTEN__
+        // Part 7 (WASM startup abort, found by marker bisection):
+        // the web version has no local compiler set by design —
+        // code runs through the online compiler (Part 2) — and the
+        // modal "search for compilers?" prompt below cannot run
+        // under Qt for WebAssembly: QMessageBox::warning() enters
+        // exec(), which is unsupported without asyncify and kills
+        // startup after the download, before any window appears.
+        // Never ask on the web; an empty set list is the correct
+        // state here.
+        return;
+#else
 #ifdef Q_OS_WIN
         QString msg = QObject::tr("Compiler set not configuared.")
                 +"<br /><br />"
@@ -2041,6 +2053,7 @@ void CompilerSets::loadSets()
             return;
         }
         saveSets();
+#endif // __EMSCRIPTEN__
 
     }
 

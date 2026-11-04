@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "searchinfiledialog.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_searchinfiledialog.h"
 #include <QTabBar>
 #include <QMessageBox>
@@ -480,6 +483,14 @@ void SearchInFileDialog::onSearchTypeChanged(bool checked)
 
 void SearchInFileDialog::on_btnChangeFolder_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Choose Folder"),
+                    tr("Picking a folder from this computer is not available in the web version - the search uses the folder shown (files you open live there)."));
+    return;
+#endif
     QString folder = QFileDialog::getExistingDirectory(this,tr("Choose Folder"),
                                                        ui->txtFolder->text());
     if (directoryExists(folder))

@@ -26,6 +26,12 @@
 #include <cmath>
 #include <QFileInfo>
 #include <QProcess>
+#ifdef __EMSCRIPTEN__
+#include "../wasmshim/qprocess_wasm.h" // QProcess is absent in Qt for WebAssembly
+#include "onlinebackend.h"
+#include <QFile>
+#include <QPointer>
+#endif
 #include <QString>
 #include <QTime>
 #include <QApplication>
@@ -53,9 +59,36 @@ Compiler::Compiler(const QString &filename, bool onlyCheckSyntax):
 void Compiler::run()
 {
     emit compileStarted();
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+    // Part 6, single-thread build: the online request is async (no
+    // worker thread exists), so the finally-guard pattern below
+    // cannot be used — QThread::finished fires when this function
+    // returns, long before the reply arrives. compileFinished is
+    // emitted by finishOnlineCompile() when the result is applied
+    // (CompilerManager's single-thread connections key off it).
+    try {
+        runOnlineCompileAsync();
+    } catch (CompileError e) {
+        emit compileErrorOccured(e.reason());
+        emit compileFinished(mFilename);
+    }
+    return;
+#endif
     auto action = finally([this]{
         emit compileFinished(mFilename);
     });
+#ifdef __EMSCRIPTEN__
+    // Web build: there is no local compiler process to drive. Send
+    // the file to the online /api/run backend and report through the
+    // same signals (compileOutput / compileIssue / compileFinished)
+    // the native path uses.
+    try {
+        runOnlineCompile();
+    } catch (CompileError e) {
+        emit compileErrorOccured(e.reason());
+    }
+    return;
+#endif
     try {
         if (!prepareForCompile()){
             return;
@@ -95,6 +128,170 @@ void Compiler::run()
     }
 
 }
+
+#ifdef __EMSCRIPTEN__
+// Web build implementation of Compile & Run's first half. The
+// /api/run backend compiles AND runs in one round trip; here we only
+// consume its compile verdict (diagnostics -> compileIssue signals,
+// exactly like the native stderr parser path) and leave a placeholder
+// at the executable path so MainWindow's follow-up Run step proceeds
+// to the online runner, which re-runs the program and shows its
+// output. See WASM-PROGRESS.md (Part 2) for the full picture.
+void Compiler::onlineCompilePrologue(QString &language, QString &code)
+{
+    if (inherits("ProjectCompiler")) {
+        throw CompileError(tr("Compiling a whole project is not "
+                              "supported in the web version yet. Open "
+                              "a single source file to compile and "
+                              "run it online."));
+    }
+    language = dbsOnlineLanguageForFilename(mFilename);
+    if (language.isEmpty()) {
+        throw CompileError(tr("Only C, C++ and Python files can be "
+                              "compiled in the web version. \"%1\" is "
+                              "not one of them.").arg(mFilename));
+    }
+    mDirectory = extractFileDir(mFilename);
+    mErrorCount = 0;
+    mWarningCount = 0;
+
+    if (mOnlyCheckSyntax) {
+        log(tr("Checking single file online..."));
+    } else {
+        log(tr("Compiling single file online..."));
+    }
+    log("------------------");
+    log(tr("- Filename: %1").arg(mFilename));
+    log("");
+
+    // StdinCompiler pipes the editor text; FileCompiler's file has
+    // already been saved to disk by the editor before compiling.
+    const QByteArray piped = pipedText();
+    code = !piped.isEmpty()
+            ? QString::fromUtf8(piped)
+            : QString::fromUtf8(readFileToByteArray(mFilename));
+}
+
+void Compiler::runOnlineCompile()
+{
+    QString language;
+    QString code;
+    onlineCompilePrologue(language, code);
+    const DbsOnlineRunResult result = dbsOnlineRunCode(
+                language, code, QString());
+    if (!applyOnlineCompileResult(result, language))
+        throw CompileError(result.networkError);
+}
+
+bool Compiler::applyOnlineCompileResult(const DbsOnlineRunResult &result,
+                                        const QString &language)
+{
+    if (!result.networkOk)
+        return false;
+
+    if (result.stage == QLatin1String("compile")
+            || result.stage == QLatin1String("input")) {
+        // Compilation failed. The diagnostics reference the server's
+        // fixed file name (main.cpp / main.c / main.py); rewrite it
+        // to the user's real file name so the parsed CompileIssues
+        // point at the right file (line numbers are unchanged — the
+        // server compiles the document verbatim).
+        QString diagnostics = result.stdErr;
+        const QString serverName = dbsOnlineServerFilename(language);
+        const QString realName = QFileInfo(mFilename).fileName();
+        if (!serverName.isEmpty() && serverName != realName)
+            diagnostics.replace(serverName, realName);
+        if (!result.stdOut.isEmpty())
+            log(result.stdOut);
+        if (!diagnostics.isEmpty()) {
+            error(diagnostics); // logs + parses issues, like stderr
+            error(COMPILE_PROCESS_END); // flush the trailing issue
+        }
+        if (mErrorCount == 0) {
+            // Diagnostics the gcc-style parser couldn't read (e.g. a
+            // Python traceback): register one plain error so the
+            // compile still counts as failed and Compile & Run does
+            // not try to execute anything.
+            auto issue = std::make_shared<CompileIssue>();
+            issue->filename = mFilename;
+            issue->line = 0;
+            issue->column = 0;
+            issue->endColumn = -1;
+            issue->type = CompileIssueType::Error;
+            issue->description = diagnostics.isEmpty()
+                    ? tr("Online compilation failed.")
+                    : diagnostics.split(QLatin1Char('\n')).first();
+            mErrorCount = 1;
+            emit compileIssue(issue);
+        }
+        log("");
+        log(tr("Compile Result:"));
+        log("------------------");
+        log(tr("- Errors: %1").arg(mErrorCount));
+        log(tr("- Warnings: %1").arg(mWarningCount));
+        log(tr("- Compilation Time: %1 secs").arg(result.timeMs / 1000.0));
+        return true;
+    }
+
+    // Stage "run": compilation succeeded. (The server's verification
+    // run output is discarded here; the Run step re-runs the program
+    // through OnlineExecutableRunner and displays its output. The
+    // backend does not return compiler warnings for a successful
+    // compile, so the warning count stays 0 on the web build.)
+    if (!mOnlyCheckSyntax) {
+        if (compilerSet())
+            mOutputFile = compilerSet()->getOutputFilename(mFilename);
+        else
+            mOutputFile = changeFileExt(mFilename,
+                                        DEFAULT_EXECUTABLE_SUFFIX);
+        QFile placeholder(mOutputFile);
+        if (placeholder.open(QFile::WriteOnly | QFile::Truncate))
+            placeholder.close();
+        else
+            mOutputFile.clear();
+    }
+    log("");
+    log(tr("Compile Result:"));
+    log("------------------");
+    log(tr("- Errors: %1").arg(mErrorCount));
+    log(tr("- Warnings: %1").arg(mWarningCount));
+    if (!mOutputFile.isEmpty())
+        log(tr("- Output Filename: %1").arg(mOutputFile));
+    log(tr("- Compilation Time: %1 secs").arg(result.timeMs / 1000.0));
+    return true;
+}
+
+#ifdef DBS_WASM_ST
+// Part 6, single-thread build: same compile, but the request is
+// asynchronous — this build has no pthread to block on a synchronous
+// fetch. Called from run() on the main thread; throws CompileError
+// for the same up-front problems as the synchronous flavour.
+void Compiler::runOnlineCompileAsync()
+{
+    QString language;
+    QString code;
+    onlineCompilePrologue(language, code);
+    QPointer<Compiler> self(this);
+    dbsOnlineRunCodeAsync(language, code, QString(),
+        [self, language](const DbsOnlineRunResult &result) {
+            if (self)
+                self->finishOnlineCompile(result, language);
+        });
+}
+
+// Main-thread continuation of runOnlineCompileAsync(): applies the
+// result exactly like the synchronous flavour and only then emits
+// compileFinished — in this build that signal (not QThread::finished)
+// is what CompilerManager treats as completion.
+void Compiler::finishOnlineCompile(const DbsOnlineRunResult &result,
+                                   const QString &language)
+{
+    if (!applyOnlineCompileResult(result, language))
+        emit compileErrorOccured(result.networkError);
+    emit compileFinished(mFilename);
+}
+#endif // DBS_WASM_ST
+#endif // __EMSCRIPTEN__
 
 QString Compiler::getFileNameFromOutputLine(QString &line) {
     QString temp;

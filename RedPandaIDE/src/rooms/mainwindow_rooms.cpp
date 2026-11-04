@@ -521,11 +521,28 @@ void MainWindow::onWelcomeNewDocument()
     // His flow: a new document is saved to disk FIRST, then opened.
     QString startDir = QStandardPaths::writableLocation(
                 QStandardPaths::DocumentsLocation);
+#ifdef __EMSCRIPTEN__
+    // Web build: QFileDialog::getSaveFileName() runs a modal exec()
+    // that wedges the page (Part 8) — and there is no real folder
+    // to pick in a browser. Create the document directly in the
+    // Documents folder (persistent via IDBFS since Part 9),
+    // uniquified; the starter-content write and open-in-editor
+    // steps below are shared with the native flow. The user keeps
+    // the file through Save, which downloads it (Editor::saveAs).
+    // Part 9 Stage 3 (Sufyan, 2026-11-04): the default name is
+    // untitled.cpp (then untitled1.cpp, untitled2.cpp, ...) —
+    // "main.cpp na ho".
+    QDir().mkpath(startDir);
+    QString path = startDir + QStringLiteral("/untitled.cpp");
+    for (int i = 1; QFile::exists(path); ++i)
+        path = QStringLiteral("%1/untitled%2.cpp").arg(startDir).arg(i);
+#else
     QString path = QFileDialog::getSaveFileName(
                 this, tr("New Document — choose where to save it"),
                 startDir + "/main.cpp",
                 tr("C++ files (*.cpp);;C files (*.c);;"
                    "Python files (*.py);;Text files (*.txt)"));
+#endif
     if (path.isEmpty())
         return;
     QFileInfo info{path};
@@ -833,8 +850,100 @@ const DbsProgramTemplate DBS_TEMPLATES[] = {
 
 } // namespace
 
+#ifdef __EMSCRIPTEN__
+// Part 8 (WASM only): the tail of onWelcomeTemplates, run when the
+// async popup picker returns a choice. QMenu::exec() cannot be
+// used on Qt WASM without asyncify — its nested QEventLoop spins
+// forever (212k "WaitForMoreEvents is not supported" console
+// warnings in one rig run; the renderer wedges). The file itself
+// is created directly under its default name, exactly like the
+// WASM branch of the native flow below.
+void MainWindow::dbsCreateFromTemplate(int dataValue)
+{
+    const int count = int(sizeof(DBS_TEMPLATES) / sizeof(DBS_TEMPLATES[0]));
+    const int tmplIndex = dataValue / 10;
+    const int lang = dataValue % 10;
+    if (tmplIndex < 0 || tmplIndex >= count)
+        return;
+    const DbsProgramTemplate &tmpl = DBS_TEMPLATES[tmplIndex];
+    const char *codeText = lang == 0 ? tmpl.cpp
+                                     : (lang == 1 ? tmpl.c : tmpl.python);
+    const QString ext = lang == 0 ? ".cpp" : (lang == 1 ? ".c" : ".py");
+    QString startDir = QStandardPaths::writableLocation(
+                QStandardPaths::DocumentsLocation);
+    QDir().mkpath(startDir);
+    QString path = startDir + "/" + QString::fromLatin1(tmpl.slug) + ext;
+    for (int i = 2; QFile::exists(path); ++i)
+        path = QStringLiteral("%1/%2%3%4").arg(startDir,
+                QString::fromLatin1(tmpl.slug)).arg(i).arg(ext);
+    QFileInfo info{path};
+    if (!info.exists() || info.size() == 0) {
+        QFile file{path};
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            statusBar()->showMessage(
+                        tr("Could not create the file %1.").arg(path), 6000);
+            return;
+        }
+        file.write(codeText);
+        file.close();
+    }
+    Editor *editor = nullptr;
+    try {
+        editor = mEditorManager->newEditor(
+                    path, pSettings->editor().defaultEncoding(),
+                    FileType::None, QString(), false, false);
+    } catch (...) {
+        editor = nullptr;
+    }
+    if (editor) {
+        mEditorManager->activeEditor(editor, true);
+        statusBar()->showMessage(
+                    tr("Template '%1' is open — edit it, then run it "
+                       "like any program.").arg(
+                        QString::fromLatin1(tmpl.name)), 8000);
+    } else {
+        statusBar()->showMessage(
+                    tr("The file was saved, but could not be opened: %1")
+                    .arg(path), 6000);
+    }
+}
+#endif
+
 void MainWindow::onWelcomeTemplates()
 {
+#ifdef __EMSCRIPTEN__
+    // Web build (Part 8): non-blocking popup picker — see
+    // dbsCreateFromTemplate above for why exec() cannot be used.
+    QMenu *menu = new QMenu(this);
+    menu->setStyleSheet(
+        "QMenu { font-size: 10.5pt; }"
+        "QMenu::item { padding: 2px 24px 2px 12px; }"
+        "QMenu::item:selected { background: #2f6fb2; color: #ffffff; }");
+    const int count = int(sizeof(DBS_TEMPLATES) / sizeof(DBS_TEMPLATES[0]));
+    auto addLanguage = [&](const QString &title, int lang) {
+        QMenu *sub = menu->addMenu(title);
+        for (int i = 0; i < count; ++i) {
+            QAction *act = sub->addAction(
+                        QString::fromLatin1(DBS_TEMPLATES[i].name));
+            act->setData(i * 10 + lang); // same encoding as native
+        }
+    };
+    addLanguage(tr("C++"), 0);
+    addLanguage(tr("C"), 1);
+    addLanguage(tr("Python"), 2);
+    connect(menu, &QMenu::triggered, this,
+            [this, menu](QAction *act) {
+        const int dataValue = act ? act->data().toInt() : -1;
+        menu->deleteLater();
+        if (dataValue >= 0)
+            dbsCreateFromTemplate(dataValue);
+    });
+    connect(menu, &QMenu::aboutToHide, menu, [menu]() {
+        menu->deleteLater();
+    });
+    menu->popup(QCursor::pos());
+    return;
+#else
     // A small picker menu in the app's own menu style — the Home
     // screen itself stays uncluttered: one glass tile, no template
     // names on the wallpaper.
@@ -873,10 +982,21 @@ void MainWindow::onWelcomeTemplates()
     // His save-first flow, exactly like New Document.
     QString startDir = QStandardPaths::writableLocation(
                 QStandardPaths::DocumentsLocation);
+#ifdef __EMSCRIPTEN__
+    // Web build: same modal-dialog bypass as New Document (Part 8)
+    // — create the template file directly under its default name,
+    // uniquified, in the (in-memory) Documents folder.
+    QDir().mkpath(startDir);
+    QString path = startDir + "/" + QString::fromLatin1(tmpl.slug) + ext;
+    for (int i = 2; QFile::exists(path); ++i)
+        path = QStringLiteral("%1/%2%3%4").arg(startDir,
+                QString::fromLatin1(tmpl.slug)).arg(i).arg(ext);
+#else
     QString path = QFileDialog::getSaveFileName(
                 this, tr("New from template — choose where to save it"),
                 startDir + "/" + QString::fromLatin1(tmpl.slug) + ext,
                 filter);
+#endif
     if (path.isEmpty())
         return;
     QFileInfo info{path};
@@ -909,6 +1029,7 @@ void MainWindow::onWelcomeTemplates()
                     tr("The file was saved, but could not be opened: %1")
                     .arg(path), 6000);
     }
+#endif
 }
 
 
@@ -1356,6 +1477,15 @@ void MainWindow::onRoomSaveCodeRequested()
             : language == "c"
                   ? tr("C files (*.c);;All files (*)")
                   : tr("C++ files (*.cpp);;All files (*)");
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the save is a browser download of the
+    // member's code (getSaveFileName is an exec()).
+    QFileDialog::saveFileContent(code.toUtf8(), defaultName, this);
+    statusBar()->showMessage(
+                tr("Saved %1's code to %2.")
+                    .arg(member->name, defaultName), 5000);
+    return;
+#endif
     QString path = QFileDialog::getSaveFileName(
                 this, tr("Save %1's code").arg(member->name),
                 defaultName, filter);
@@ -1855,18 +1985,53 @@ void MainWindow::openCustomizeHome()
 {
     const DbsThemePack *pack = dbsThemePackById(mAppliedPackId);
     if (pack && pack->wallpapers.isEmpty()) {
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): the static QMessageBox::information
+        // is an exec() call — this branch is exactly what a fresh
+        // browser profile hits (Normal pack active), which is why
+        // the Customize Home tile appeared to do nothing at all.
+        dbsWasmShowInfo(this, tr("Customize Home"),
+                        tr("The Normal theme's Home is the animated "
+                           "Dev by Sufyan brand scene — there is no "
+                           "wallpaper to pick."));
+#else
         QMessageBox::information(
             this, tr("Customize Home"),
             tr("The Normal theme's Home is the animated Dev by "
                "Sufyan brand scene - there is no wallpaper to pick."));
+#endif
         return;
     }
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): non-modal picker; the pin is saved by
+    // the dialog itself, the continuation re-applies the pack so
+    // the Home background changes immediately (and the pin lives
+    // in QSettings, like native).
+    {
+        QPointer<MainWindow> self(this);
+        dbsShowCustomizeHomeDialogAsync(
+                    this, pack, [self](bool changed) {
+            if (changed && self)
+                self->applyDbsThemePack(self->mAppliedPackId, false);
+        });
+    }
+    return;
+#endif
     if (dbsShowCustomizeHomeDialog(this, pack))
         applyDbsThemePack(mAppliedPackId, false);
 }
 
 void MainWindow::updateDbsBackdrop()
 {
+#ifdef __EMSCRIPTEN__
+    // Web build: skip the wallpaper brush entirely (plain theme
+    // rendering). The brush repaints a full-window pixmap behind
+    // the panels and editor tabs on every frame; with the
+    // browser's software rasterizer that is a standing lag tax on
+    // all interaction (Part 8). Nothing was ever applied on this
+    // platform, so there is no saved palette to restore.
+    return;
+#endif
     const QList<QWidget *> targets = {
         ui->centralwidget, ui->dockExplorer, ui->dockMessages,
         mRoomsDock, mRoomsPanel, ui->EditorTabsLeft,

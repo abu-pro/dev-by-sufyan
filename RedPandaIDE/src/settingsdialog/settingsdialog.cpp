@@ -357,11 +357,19 @@ void SettingsDialog::saveCurrentPageSettings(bool confirm)
     if (!pWidget->isSettingsChanged())
         return;
     if (confirm) {
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): the static QMessageBox::warning is
+        // the exec() wall. On page switch the web build saves the
+        // page's changes without asking — the safe action (work
+        // is never silently discarded; Cancel in the dialog still
+        // abandons the CURRENT page's unsaved edits, as native).
+#else
         if (QMessageBox::warning(this,tr("Save Changes"),
                tr("There are changes in the settings, do you want to save them before swtich to other page?"),
                QMessageBox::Yes, QMessageBox::No)!=QMessageBox::Yes) {
             return;
         }
+#endif
     }
     pWidget->save();
 }

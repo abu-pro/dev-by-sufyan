@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "projectprecompilewidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_projectprecompilewidget.h"
 #include "../mainwindow.h"
 #include "../project.h"
@@ -49,6 +52,17 @@ void ProjectPreCompileWidget::doSave()
 
 void ProjectPreCompileWidget::on_btnBrowse_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString currentFile=ui->txtPrecompileHeader->text();
     QString currentDir;
     if (currentFile.isEmpty()) {

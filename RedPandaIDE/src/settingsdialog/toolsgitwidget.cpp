@@ -1,4 +1,7 @@
 #include "toolsgitwidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_toolsgitwidget.h"
 #include "../iconsmanager.h"
 #include "../settings.h"
@@ -40,6 +43,17 @@ void ToolsGitWidget::updateIcons(const QSize &/*size*/)
 
 void ToolsGitWidget::on_btnBrowseGit_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString filename = QFileDialog::getOpenFileName(
                 this,
                 tr("Git Executable"),

@@ -100,6 +100,12 @@
 
 #include "settingsdialog/settingsdialog.h"
 #include "compiler/compilermanager.h"
+#ifdef __EMSCRIPTEN__
+#include "compiler/onlinebackend.h"
+#include "rooms/dbstheme.h"
+#include "wasmshim/dbsterminal.h"
+#include <QInputDialog>
+#endif
 #include <qsynedit/document.h>
 #include "cpprefacter.h"
 
@@ -841,6 +847,20 @@ void MainWindow::updateCompileActions() {
 
 void MainWindow::updateCompileActions(const Editor *e)
 {
+#ifdef __EMSCRIPTEN__
+    // Web build: no debugger can exist in a browser (the gdb/DAP
+    // clients drive an external process), so keep the debug actions
+    // hidden — not merely disabled. MainWindow::debug() also refuses
+    // to start there; this covers the visible UI.
+    ui->actionDebug->setVisible(false);
+    ui->actionInterrupt->setVisible(false);
+    ui->actionStep_Over->setVisible(false);
+    ui->actionStep_Into->setVisible(false);
+    ui->actionStep_Out->setVisible(false);
+    ui->actionRun_To_Cursor->setVisible(false);
+    ui->actionContinue->setVisible(false);
+    ui->actionAdd_Watchpoint->setVisible(false);
+#endif
     if (mCompilerManager->compiling()
             //|| mCompilerManager->backgroundSyntaxChecking()
             || mCompilerManager->running() || mDebugger->executing()) {
@@ -920,6 +940,21 @@ void MainWindow::updateCompileActions(const Editor *e)
                 }
             }
         }
+#ifdef __EMSCRIPTEN__
+        // Web build: a local compiler set can never be found in a
+        // browser, so without this the Compile/Run actions would
+        // stay disabled forever. Single C/C++ files compile and run
+        // through the online backend instead; debugging stays off.
+        if (!set && e && !e->inProject()) {
+            FileType fileType = e->fileType();
+            if (fileType == FileType::CSource
+                    || fileType == FileType::CppSource) {
+                canCompile = true;
+                canRun = true;
+            }
+        }
+        canDebug = false;
+#endif
         ui->actionCompile->setEnabled(canCompile);
         ui->actionRun->setEnabled(canRun);
         ui->actionRebuild->setEnabled(canCompile);
@@ -1963,6 +1998,14 @@ void MainWindow::openProject(QString filename, bool openFiles)
     if (mProject) {
         if (mProject->filename() == filename)
             return;
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): the ProjectAlreadyOpenDialog's
+        // exec() is the wall, and its "open in a new window"
+        // choice can never exist in a browser tab anyway — so the
+        // web build takes the safe default directly: close the
+        // current project and open the new one in this window.
+        closeProject(false);
+#else
         ProjectAlreadyOpenDialog dlg;
         if (dlg.exec()!=QDialog::Accepted)
             return;
@@ -1979,7 +2022,7 @@ void MainWindow::openProject(QString filename, bool openFiles)
             process.startDetached();
             return;
         }
-
+#endif
     } else {
         if (mEditorManager->pageCount()==1) {
             oldEditor = (*mEditorManager)[0];
@@ -2057,6 +2100,43 @@ void MainWindow::changeOptions(const QString &widgetName, const QString &groupNa
     if (!groupName.isEmpty()) {
         settingsDialog->setCurrentWidget(widgetName, groupName);
     }
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): exec() is the wall — the Settings dialog
+    // is shown NON-modally instead (it applies through its own
+    // OK/Apply buttons), kept alive in a member, and the post-exec
+    // steps below run from its finished() signal. This one
+    // conversion unlocks every Settings entry point on the web:
+    // Tools > Options, the Home Change Theme / Change Font tiles,
+    // and the Themes menu items that route here.
+    if (mDbsWasmOptionsDialog) {
+        mDbsWasmOptionsDialog->raise();
+        mDbsWasmOptionsDialog->activateWindow();
+        return;
+    }
+    mDbsWasmOptionsDialog = settingsDialog;
+    connect(settingsDialog.get(), &QDialog::finished, this, [this]() {
+        PSettingsDialog dialog = mDbsWasmOptionsDialog;
+        mDbsWasmOptionsDialog.reset();
+        if (dialog && dialog->appShouldQuit()) {
+            mShouldRemoveAllSettings = true;
+            close();
+            return;
+        }
+        if (mProject) {
+            scanActiveProject(true);
+        }
+        reparseNonProjectEditors();
+    });
+    // Backstop: never let the holder outlive the dialog object.
+    connect(settingsDialog.get(), &QObject::destroyed, this, [this]() {
+        mDbsWasmOptionsDialog.reset();
+    });
+    // open() = window-modal but asynchronous: the dialog's own
+    // buttons close() it, which routes through done() and emits
+    // finished() (show() would not).
+    settingsDialog->open();
+    return;
+#endif
     settingsDialog->exec();
     if (settingsDialog->appShouldQuit()) {
         mShouldRemoveAllSettings = true;
@@ -2089,6 +2169,25 @@ void MainWindow::changeProjectOptions(const QString &widgetName, const QString &
     if (!groupName.isEmpty()) {
         dialog->setCurrentWidget(widgetName, groupName);
     }
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): same non-modal conversion as
+    // changeOptions — open() + finished() continuation.
+    if (mDbsWasmProjectOptionsDialog) {
+        mDbsWasmProjectOptionsDialog->raise();
+        mDbsWasmProjectOptionsDialog->activateWindow();
+        return;
+    }
+    mDbsWasmProjectOptionsDialog = dialog;
+    connect(dialog.get(), &QDialog::finished, this, [this]() {
+        mDbsWasmProjectOptionsDialog.reset();
+        updateCompilerSet();
+    });
+    connect(dialog.get(), &QObject::destroyed, this, [this]() {
+        mDbsWasmProjectOptionsDialog.reset();
+    });
+    dialog->open();
+    return;
+#endif
     dialog->exec();
     updateCompilerSet();
 }
@@ -2580,6 +2679,14 @@ void MainWindow::runExecutable(
 
 void MainWindow::runExecutable(RunType runType)
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): a Run opens the terminal window right
+    // away, like the console window the PC runner spawns — before
+    // any compile/run round trip returns. Problem-case runs keep
+    // their OJ panel and don't open a terminal.
+    if (runType == RunType::Normal)
+        dbsWasmOpenTerminalForRun();
+#endif
     CompileTarget target =getCompileTarget();
     if (target == CompileTarget::Project) {
         QStringList binDirs = mProject->binDirs();
@@ -2645,6 +2752,17 @@ void MainWindow::runExecutable(RunType runType)
 
 void MainWindow::debug()
 {
+#ifdef __EMSCRIPTEN__
+    // No debugger in the web build: the gdb/DAP clients drive an
+    // external process, which a browser cannot spawn. The debug
+    // actions are hidden in updateCompileActions(); this guards the
+    // remaining entry points.
+    QMessageBox::information(this, tr("Debug"),
+                             tr("Debugging is not available in the web "
+                                "version of Dev by Sufyan. Use Compile "
+                                "& Run instead."));
+    return;
+#endif
     if (mCompilerManager->compiling())
         return;
     mCompilerManager->stopPausing();
@@ -3539,11 +3657,22 @@ void MainWindow::scanActiveProject(bool parse)
 
 void MainWindow::onBookmarkContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     menu.addAction(mBookmark_Remove);
     menu.addAction(mBookmark_RemoveAll);
     menu.addAction(mBookmark_Modify);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->tableBookmark->mapToGlobal(pos));
+#else
     menu.exec(ui->tableBookmark->mapToGlobal(pos));
+#endif
 }
 
 bool MainWindow::saveLastOpens()
@@ -3622,26 +3751,43 @@ void MainWindow::loadLastOpens()
         mOpeningFiles=false;
     });
     QString filename = includeTrailingPathDelimiter(pSettings->dirs().config()) + DEV_LASTOPENS_FILE;
+#ifdef __EMSCRIPTEN__
+    // Part 9 Stage 3: remember whether the persisted session file
+    // was already there at the first startup attempt. If the IDBFS
+    // populate lands after this call, the delayed retry in
+    // dbsfeatures.cpp re-runs loadLastOpens() once the file appears.
+    mDbsWasmLastOpensFileSeen = fileExists(filename);
+#endif
     if (!fileExists(filename))
         return;
     QFile file(filename);
     if (!file.open(QFile::ReadOnly)) {
+#ifdef __EMSCRIPTEN__
+        qWarning() << "Can't load last open info file" << filename;
+        return;
+#else
         QMessageBox::critical(this,
                               tr("Load last open info error"),
                               tr("Can't load last open info file '%1'")
                               .arg(filename),
                               QMessageBox::Ok);
+#endif
         return;
     }
     QJsonParseError error;
     QJsonDocument doc=QJsonDocument::fromJson(file.readAll(),&error);
     if (error.error != QJsonParseError::NoError) {
+#ifdef __EMSCRIPTEN__
+        qWarning() << "Can't parse last open info file" << filename
+                   << error.errorString();
+#else
         QMessageBox::critical(this,
                               tr("Load last open info error"),
                               tr("Can't load last open info file '%1'")
                               .arg(filename)+" : <BR/>"
                               +QString("%1").arg(error.errorString()),
                               QMessageBox::Ok);
+#endif
         return;
 
     }
@@ -4002,6 +4148,14 @@ QStringList MainWindow::getDefaultCompilerSetBinDirs()
 
 void MainWindow::openShell(const QString &folder, const QString &shellCommand, const QStringList& binDirs)
 {
+#ifdef __EMSCRIPTEN__
+    // No shell/terminal exists in a browser; "Open Terminal Here"
+    // and similar actions are no-ops in the web build.
+    Q_UNUSED(folder);
+    Q_UNUSED(shellCommand);
+    Q_UNUSED(binDirs);
+    return;
+#endif
     QProcess process;
     process.setWorkingDirectory(folder);
     process.setProgram(shellCommand);
@@ -4071,17 +4225,35 @@ void MainWindow::onAutoSaveTimeout()
 
 void MainWindow::onWatchViewContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     menu.addAction(ui->actionAdd_Watch);
     menu.addAction(ui->actionRemove_Watch);
     menu.addAction(ui->actionRemove_All_Watches);
     menu.addAction(ui->actionModify_Watch);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->watchView->mapToGlobal(pos));
+#else
     menu.exec(ui->watchView->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onTableIssuesContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     // Dev by Sufyan v1.4.0: explain the clicked error in simple words.
     QModelIndex issueIndex = ui->tableIssues->indexAt(pos);
     if (issueIndex.isValid()) {
@@ -4098,28 +4270,54 @@ void MainWindow::onTableIssuesContextMenu(const QPoint &pos)
     menu.addAction(mTableIssuesCopyAllAction);
     menu.addSeparator();
     menu.addAction(mTableIssuesClearAction);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->tableIssues->mapToGlobal(pos));
+#else
     menu.exec(ui->tableIssues->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onSearchViewContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     menu.addAction(mSearchViewClearAction);
     menu.addAction(mSearchViewClearAllAction);
     mSearchViewClearAction->setEnabled(ui->cbSearchHistory->currentIndex()>0);
     mSearchViewClearAction->setEnabled(mSearchResultModel->rowCount(QModelIndex())>0);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->searchHistoryPanel->mapToGlobal(pos));
+#else
     menu.exec(ui->searchHistoryPanel->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onBreakpointsViewContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     menu.addAction(mBreakpointViewPropertyAction);
     menu.addAction(mBreakpointViewRemoveAllAction);
     menu.addAction(mBreakpointViewRemoveAction);
     mBreakpointViewPropertyAction->setEnabled(ui->tblBreakpoints->currentIndex().isValid());
     mBreakpointViewRemoveAction->setEnabled(ui->tblBreakpoints->currentIndex().isValid());
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->tblBreakpoints->mapToGlobal(pos));
+#else
     menu.exec(ui->tblBreakpoints->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onProjectViewContextMenu(const QPoint &pos)
@@ -4148,7 +4346,14 @@ void MainWindow::onProjectViewContextMenu(const QPoint &pos)
         }
     }
 
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
 #ifdef ENABLE_VCS
     QMenu vcsMenu(this);
     QString branch;
@@ -4255,12 +4460,23 @@ void MainWindow::onProjectViewContextMenu(const QPoint &pos)
 //        ui->actionGit_Revert->setEnabled(true);
     }
 #endif
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->projectView->mapToGlobal(pos));
+#else
     menu.exec(ui->projectView->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onClassBrowserContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     bool canGoto = false;
     QModelIndex index = ui->classBrowser->currentIndex();
     if (index.isValid()) {
@@ -4292,12 +4508,23 @@ void MainWindow::onClassBrowserContextMenu(const QPoint &pos)
         }
     }
 
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->projectView->mapToGlobal(pos));
+#else
     menu.exec(ui->projectView->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onDebugConsoleContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
 
     bool oldBlock = mDebugConsole_ShowDetailLog->blockSignals(true);
     mDebugConsole_ShowDetailLog->setChecked(pSettings->debugger().showDetailLog());
@@ -4309,7 +4536,11 @@ void MainWindow::onDebugConsoleContextMenu(const QPoint &pos)
     menu.addAction(mDebugConsole_Clear);
     menu.addSeparator();
     menu.addAction(mDebugConsole_ShowDetailLog);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->debugConsole->mapToGlobal(pos));
+#else
     menu.exec(ui->debugConsole->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onFileEncodingContextMenu(const QPoint &pos)
@@ -4320,7 +4551,14 @@ void MainWindow::onFileEncodingContextMenu(const QPoint &pos)
 
 void MainWindow::onFilesViewContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
 #ifdef ENABLE_VCS
     GitManager vcsManager;
     QString branch;
@@ -4404,12 +4642,23 @@ void MainWindow::onFilesViewContextMenu(const QPoint &pos)
 //        ui->actionGit_Revert->setEnabled(true);
     }
 #endif
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->treeFiles->mapToGlobal(pos));
+#else
     menu.exec(ui->treeFiles->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onLstProblemSetContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     QModelIndex idx = ui->lstProblemSet->currentIndex();
     mProblem_Properties->setEnabled(idx.isValid());
     mProblem_Rename->setEnabled(idx.isValid());
@@ -4465,6 +4714,14 @@ void MainWindow::onLstProblemSetContextMenu(const QPoint &pos)
         QAction * action = new QAction(tr("select other file..."),menuSetAnswer);
         connect(action, &QAction::triggered,
                 [problem,this](){
+#ifdef __EMSCRIPTEN__
+            // Part 9 (web build): honest-disable (static getter
+            // = exec()).
+            dbsWasmShowInfo(this, tr("Select Answer Source File"),
+                            tr("Picking a file from this computer is "
+                               "not available in the web version."));
+            return;
+#endif
             QString filename = QFileDialog::getOpenFileName(
                         this,
                         tr("Select Answer Source File"),
@@ -4489,12 +4746,23 @@ void MainWindow::onLstProblemSetContextMenu(const QPoint &pos)
     }
     menu.addAction(mProblem_OpenSource);
     menu.addAction(mProblem_Properties);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->lstProblemSet->mapToGlobal(pos));
+#else
     menu.exec(ui->lstProblemSet->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onTableProblemCasesContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     menu.addAction(mProblem_AddCase);
     menu.addAction(mProblem_RemoveCases);
     menu.addAction(mProblem_batchSetCases);
@@ -4505,17 +4773,32 @@ void MainWindow::onTableProblemCasesContextMenu(const QPoint &pos)
     menu.addAction(mProblem_CaseValidationOptions);
     mProblem_RunAllCases->setEnabled(mOJProblemModel->count()>0 && ui->actionRun->isEnabled());
     mProblem_RunCurrentCase->setEnabled(idx.isValid() && ui->actionRun->isEnabled());
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->tblProblemCases->mapToGlobal(pos));
+#else
     menu.exec(ui->tblProblemCases->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onToolsOutputContextMenu(const QPoint &pos)
 {
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     menu.addAction(mToolsOutput_Copy);
     menu.addAction(mToolsOutput_SelectAll);
     menu.addSeparator();
     menu.addAction(mToolsOutput_Clear);
+#ifdef __EMSCRIPTEN__
+    menu.popup(ui->txtToolsOutput->mapToGlobal(pos));
+#else
     menu.exec(ui->txtToolsOutput->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onProblemSetIndexChanged(const QModelIndex &current, const QModelIndex &/* previous */)
@@ -4624,6 +4907,14 @@ void MainWindow::onProblemRunCurrentCase()
 
 void MainWindow::onProblemBatchSetCases()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Batch Set Cases"),
+                    tr("Loading test cases from files is not available in the web version - add cases one by one in the Problem panel."));
+    return;
+#endif
     showHideMessagesTab(ui->tabProblem,ui->actionProblem);
     if (mOJProblemModel->count()>0 && QMessageBox::question(this,tr("Batch Set Cases"),
                               tr("This operation will remove all cases for the current problem.")
@@ -4896,6 +5187,18 @@ void MainWindow::onProblemProperties()
     POJProblem problem=mOJProblemSetModel->problem(idx.row());
     if (!problem)
         return;
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): non-modal, apply-on-accept continuation.
+    OJProblemPropertyWidget *dialogPtr = new OJProblemPropertyWidget(this);
+    dialogPtr->setAttribute(Qt::WA_DeleteOnClose);
+    dialogPtr->loadFromProblem(problem);
+    connect(dialogPtr, &QDialog::accepted, this,
+            [dialogPtr, problem]() {
+        dialogPtr->saveToProblem(problem);
+    });
+    dialogPtr->open();
+    return;
+#endif
     OJProblemPropertyWidget dialog;
     dialog.loadFromProblem(problem);
     if (dialog.exec() == QDialog::Accepted) {
@@ -5340,7 +5643,14 @@ void MainWindow::onEditorContextMenu(const QPoint& pos)
         return;
     FileType fileType=editor->fileType();
     bool canDebug = isC_CPP_ASMSourceFile(fileType);
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     QSynedit::CharPos p;
     int line;
     if (editor->getPositionOfMouse(p)) {
@@ -5450,7 +5760,11 @@ void MainWindow::onEditorContextMenu(const QPoint& pos)
                 line>=0 && editor->lineCount()>0
                 );
     ui->actionModify_Bookmark_Description->setEnabled(editor->hasBookmark(line));
+#ifdef __EMSCRIPTEN__
+    menu.popup(editor->viewport()->mapToGlobal(pos));
+#else
     menu.exec(editor->viewport()->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::onEditorRightTabContextMenu(const QPoint& pos)
@@ -5470,7 +5784,14 @@ void MainWindow::onEditorTabContextMenu(QTabWidget* tabWidget, const QPoint &pos
     if (index<0)
         return;
     tabWidget->setCurrentIndex(index);
+#ifdef __EMSCRIPTEN__
+    auto *dbsMenuPtr = new QMenu(this);
+    connect(dbsMenuPtr, &QMenu::aboutToHide, dbsMenuPtr,
+            [dbsMenuPtr]() { dbsMenuPtr->deleteLater(); });
+    QMenu &menu = *dbsMenuPtr;
+#else
     QMenu menu(this);
+#endif
     QTabBar* tabBar = tabWidget->tabBar();
     Editor * editor = dynamic_cast<Editor *>(tabWidget->widget(index));
     // The Home tab is not an Editor: editor is nullptr for it, and the
@@ -5495,7 +5816,11 @@ void MainWindow::onEditorTabContextMenu(QTabWidget* tabWidget, const QPoint &pos
     if (editor ) {
         ui->actionLocate_in_Files_View->setEnabled(!editor->isNew());
     }
+#ifdef __EMSCRIPTEN__
+    menu.popup(tabBar->mapToGlobal(pos));
+#else
     menu.exec(tabBar->mapToGlobal(pos));
+#endif
 }
 
 void MainWindow::disableDebugActions()
@@ -5754,6 +6079,17 @@ void MainWindow::onFileChanged(const QString &path)
     if (e) {
         if (fileExists(path)) {
             mEditorManager->activeEditor(e,true);
+#ifdef __EMSCRIPTEN__
+            // Part 9 Stage 2 (web build): QMessageBox::question is
+            // the exec() wall — and this prompt can fire mid-run
+            // (watcher sees the app's own writes), freezing the
+            // succession behind a zombie dialog. Take the native
+            // default without asking: keep the editor's content
+            // (answer "No" to reloading) and mark it modified.
+            e->setModified(true);
+            mFilesChangedNotifying.remove(path);
+            return;
+#else
             if (QMessageBox::question(this,tr("File Changed"),
                                       tr("File '%1' was changed.").arg(path)+"<BR /><BR />" + tr("Reload its content from disk?"),
                                       QMessageBox::Yes|QMessageBox::No,
@@ -5770,8 +6106,13 @@ void MainWindow::onFileChanged(const QString &path)
             } else {
                 e->setModified(true);
             }
+#endif
         } else {
             mFileSystemWatcher.removePath(path);
+#ifdef __EMSCRIPTEN__
+            // (cont.) Native default here is "Yes" (keep it open).
+            e->setModified(true);
+#else
             if (QMessageBox::question(this,tr("File Changed"),
                                       tr("File '%1' was removed.").arg(path)+"<BR /><BR />" + tr("Keep it open?"),
                                       QMessageBox::Yes|QMessageBox::No,
@@ -5780,6 +6121,7 @@ void MainWindow::onFileChanged(const QString &path)
             } else {
                 e->setModified(true);
             }
+#endif
         }
     }
     mFilesChangedNotifying.remove(path);
@@ -5792,10 +6134,17 @@ void MainWindow::onDirChanged(const QString &path)
     mFilesChangedNotifying.insert(path);
     if (mProject && QString::compare(mProject->directory(),path,PATH_SENSITIVITY)==0
             && !fileExists(path)) {
+#ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(this,tr("Project folder removed."),
+                                  tr("Folder for project '%1' was removed.").arg(path)
+                                 +"<BR /><BR />"
+                                 + tr("It will be closed."));
+#else
         QMessageBox::information(this,tr("Project folder removed."),
                                   tr("Folder for project '%1' was removed.").arg(path)
                                  +"<BR /><BR />"
                                  + tr("It will be closed."));
+#endif
         closeProject(false);
     }
     mFilesChangedNotifying.remove(path);
@@ -5924,6 +6273,31 @@ void MainWindow::onFileRenamedInFileSystemModel(const QString &path, const QStri
 
 void MainWindow::on_actionOpen_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Web build: QFileDialog::getOpenFileNames() spins a modal
+    // exec() that wedges the page (Part 8). Qt's asynchronous
+    // content API shows the browser's own file picker instead;
+    // the picked file is staged into the app filesystem and then
+    // opened through the normal path. (The browser picker yields
+    // one file per Open; repeat Open for more files.)
+    QFileDialog::getOpenFileContent(
+        pSystemConsts->defaultFileFilters().join(";;"),
+        [this](const QString &fileName, const QByteArray &fileContent) {
+            if (fileName.isEmpty())
+                return; // picker cancelled
+            QString stageDir = QDir::homePath() + QStringLiteral("/opened");
+            QDir().mkpath(stageDir);
+            QString path = stageDir + '/' + QFileInfo(fileName).fileName();
+            if (!mEditorManager->getOpenedEditor(path)) {
+                QFile file(path);
+                if (!file.open(QIODevice::WriteOnly))
+                    return;
+                file.write(fileContent);
+                file.close();
+            }
+            openFiles({path});
+        }, this);
+#else
     try {
         QString selectedFileFilter;
         selectedFileFilter = pSystemConsts->defaultAllFileFilter();
@@ -5937,6 +6311,7 @@ void MainWindow::on_actionOpen_triggered()
     }  catch (FileError e) {
         QMessageBox::critical(this,tr("Error"),e.reason());
     }
+#endif
 }
 
 void MainWindow::closeEvent(QCloseEvent *event) {
@@ -6152,6 +6527,9 @@ void MainWindow::on_actionSave_triggered()
     if (editor) {
         if (editor->inProject() && mCompileIssuesState == CompileIssuesState::ProjectCompilationResultFilled)
             mCompileIssuesState = CompileIssuesState::None;
+#ifdef __EMSCRIPTEN__
+        editor->dbsRequestDownloadAfterSave();
+#endif
         editor->save();
 //            if (editor->inProject() && (mProject))
 //                mProject->saveAll();
@@ -6163,6 +6541,9 @@ void MainWindow::on_actionSaveAs_triggered()
     Editor * editor = mEditorManager->getEditor();
     if (!editor)
         return;
+#ifdef __EMSCRIPTEN__
+    editor->dbsRequestDownloadAfterSave();
+#endif
     editor->saveAs();
     if (mProject)
         mProject->associateEditor(editor);
@@ -6314,6 +6695,9 @@ void MainWindow::onCompileFinished(QString filename, bool isCheckSyntax)
 
 
     if (isCheckSyntax) {
+#ifndef __EMSCRIPTEN__
+        // (Web build: skipped — no compiler set exists there to ask,
+        // and the online syntax check leaves no a.out behind.)
         if (!CompilerInfoManager::supportSyntaxCheck(pSettings->compilerSets().defaultSet()->compilerType())) {
             QDir dir(extractFileDir(filename));
 #ifdef Q_OS_WIN
@@ -6322,6 +6706,7 @@ void MainWindow::onCompileFinished(QString filename, bool isCheckSyntax)
             QFile::remove(dir.absoluteFilePath("a.out"));
 #endif
         }
+#endif
 
       // check syntax in back, don't change message panel
     } else if (ui->tableIssues->count() == 0) {
@@ -6341,13 +6726,27 @@ void MainWindow::onCompileFinished(QString filename, bool isCheckSyntax)
     }
 
     if (!isCheckSyntax) {
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): an F11 session is waiting in the
+        // terminal — tell it the compile failed instead of
+        // leaving it at "Starting..." forever.
+        if (mCompileSuccessionTask && mCompilerManager->compileErrorCount() > 0)
+            dbsWasmTerminalCompileFailed();
+#endif
         //run succession task if there aren't any errors
         if (mCompileSuccessionTask && mCompilerManager->compileErrorCount()==0) {
             if (!fileExists(mCompileSuccessionTask->execName)) {
+#ifdef __EMSCRIPTEN__
+                // Part 9 Stage 2 (web build): no exec() wall on the
+                // F11 path — the failure goes to the log and to the
+                // waiting terminal session instead.
+                logToolsOutput(tr("Compile Failed: Failed to generate the executable. Please check detail info in \"Tools Output\" panel."));
+                dbsWasmTerminalCompileFailed();
+#else
                 QMessageBox::critical(this,tr("Compile Failed"),
                                       tr("Failed to generate the executable.")+"<BR/><BR/>"
                                       +tr("Please check detail info in \"Tools Output\" panel."));
-
+#endif
                 return;
             }
             if (!mCompileSuccessionTask->isExecutable) {
@@ -6384,16 +6783,24 @@ void MainWindow::onCompileFinished(QString filename, bool isCheckSyntax)
                     break;
                 case MainWindow::CompileSuccessionTaskType::RunProblemCases:
                 case MainWindow::CompileSuccessionTaskType::RunCurrentProblemCase:
+#ifdef __EMSCRIPTEN__
+                    logToolsOutput(tr("Wrong Compiler Settings: Compiler is set not to generate executable. We need the executable to run problem case."));
+#else
                     QMessageBox::critical(this,tr("Wrong Compiler Settings"),
                                           tr("Compiler is set not to generate executable.")+"<BR/><BR/>"
                                           +tr("We need the executabe to run problem case."));
+#endif
                     break;
                 case MainWindow::CompileSuccessionTaskType::Debug:
+#ifdef __EMSCRIPTEN__
+                    logToolsOutput(tr("Wrong Compiler Settings: Compiler is set not to generate executable. Please correct this before start debugging"));
+#else
                     QMessageBox::critical(
                                 this,
                                 tr("Wrong Compiler Settings"),
                                 tr("Compiler is set not to generate executable.")+"<BR /><BR />"
                                 +tr("Please correct this before start debugging"));
+#endif
                     compile();
                     return;
                     break;
@@ -6449,14 +6856,155 @@ void MainWindow::onCompileFinished(QString filename, bool isCheckSyntax)
     updateAppTitle();
 }
 
+#ifdef __EMSCRIPTEN__
+// ---------------------------------------------------------------------------
+// Part 9 (web build): the terminal window for online Run output.
+// One window at a time; it is created lazily, reused/raised for
+// every run, and deletes itself on close (WA_DeleteOnClose, the
+// QPointer follows). See wasmshim/dbsterminal.h for the design.
+// ---------------------------------------------------------------------------
+
+DbsTerminalWindow *MainWindow::dbsWasmTerminal()
+{
+    if (!mDbsTerminal) {
+        mDbsTerminal = new DbsTerminalWindow(this);
+        connect(mDbsTerminal.data(), &DbsTerminalWindow::rerunRequested,
+                this, &MainWindow::dbsWasmOnTerminalRerun);
+    }
+    return mDbsTerminal.data();
+}
+
+void MainWindow::dbsWasmOpenTerminalForRun()
+{
+    Editor *editor = mEditorManager->getEditor();
+    QString display;
+    if (editor && !editor->filename().isEmpty())
+        display = QFileInfo(editor->filename()).fileName();
+    else if (mProject)
+        display = QFileInfo(mProject->outputFilename()).fileName();
+    if (display.isEmpty())
+        display = tr("Program");
+    DbsTerminalWindow *term = dbsWasmTerminal();
+    term->beginSession(display);
+    term->show();
+    term->raise();
+    term->activateWindow();
+}
+
+void MainWindow::dbsWasmEnsureTerminal(const QString &sourceFile,
+                                       const QString &exeName,
+                                       const QString &workDir,
+                                       const QString &stdinText)
+{
+    DbsTerminalWindow *term = dbsWasmTerminal();
+    const QString display = QFileInfo(sourceFile).fileName();
+    if (term->sessionPending()) {
+        // The F11 press already opened the session; the run is
+        // only now starting (compile succession) — nothing to add.
+    } else if (term->hasSession() && term->sourceFile() == sourceFile) {
+        // A finished session for the same program: this arrival
+        // is the terminal's own "Run again".
+        term->beginRerun(display);
+    } else {
+        term->beginSession(display);
+    }
+    term->setRunContext(sourceFile, exeName, workDir);
+    term->setStdinText(stdinText);
+    term->show();
+    term->raise();
+}
+
+void MainWindow::dbsWasmShowRunResult(const DbsOnlineRunResult &result)
+{
+    if (mDbsTerminal) {
+        mDbsTerminal->showResult(result);
+        // Keep the console in front (see onRunFinished): whichever
+        // of the result/finished deliveries lands last, the user
+        // ends up looking at the terminal.
+        mDbsTerminal->raise();
+        mDbsTerminal->activateWindow();
+        return;
+    }
+    // The user closed the terminal while the program ran: keep
+    // the output in the Tools Output log instead of losing it
+    // (same composition the bottom log used before Part 9).
+    QString text = result.stdOut;
+    if (!result.stdErr.isEmpty()) {
+        if (!text.isEmpty() && !text.endsWith(QLatin1Char('\n')))
+            text += QLatin1Char('\n');
+        text += result.stdErr;
+    }
+    logToolsOutput(text);
+}
+
+void MainWindow::dbsWasmRunFailedLine(const QString &text)
+{
+    if (mDbsTerminal && mDbsTerminal->sessionPending())
+        mDbsTerminal->showErrorLine(text);
+    logToolsOutput(text);
+}
+
+void MainWindow::dbsWasmShowRunError(const QString &reason)
+{
+    mCompilerManager->stopRun();
+    dbsWasmRunFailedLine(reason);
+}
+
+void MainWindow::dbsWasmTerminalCompileFailed()
+{
+    if (mDbsTerminal)
+        mDbsTerminal->showCompileFailed(); // no-op unless pending
+}
+
+void MainWindow::dbsWasmOnTerminalRerun()
+{
+    if (!mDbsTerminal)
+        return;
+    const QString source = mDbsTerminal->sourceFile();
+    const QString exe = mDbsTerminal->exeName();
+    if (source.isEmpty() || exe.isEmpty())
+        return;
+    if (mCompilerManager->running())
+        return;
+    // The online run reads the source from disk: silently save
+    // it first if it is open and edited, so a re-run never runs
+    // stale code. (A plain save() does not arm the Part 8
+    // download — only the Save actions do.)
+    if (Editor *e = mEditorManager->getOpenedEditor(source)) {
+        if (e->modified())
+            e->save(false, false);
+    }
+    mCompilerManager->dbsWasmSetStdinOverride(mDbsTerminal->stdinText());
+    mCompilerManager->run(exe, QString(), mDbsTerminal->workDir(),
+                          QStringList());
+}
+#endif // __EMSCRIPTEN__
+
 void MainWindow::onCompileErrorOccured(const QString& reason)
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): QMessageBox::critical is the exec()
+    // wall — and this slot IS reachable on the web (the online
+    // project-compile refusal lands here). The reason goes to the
+    // Tools Output log, and to the terminal if an F11 session is
+    // waiting on this compile.
+    logToolsOutput(tr("Compile Failed: %1").arg(reason));
+    dbsWasmTerminalCompileFailed();
+    return;
+#endif
     QMessageBox::critical(this,tr("Compile Failed"),reason);
 }
 
 void MainWindow::onRunErrorOccured(const QString& reason)
 {
     mCompilerManager->stopRun();
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): no critical box (exec() wall). The
+    // online runner no longer routes here at all (it uses
+    // dbsWasmShowRunError); this guard covers any other caller.
+    dbsWasmRunFailedLine(tr("Run Failed: %1").arg(reason));
+    return;
+#endif
     QMessageBox::critical(this,tr("Run Failed"),reason);
 }
 
@@ -6469,6 +7017,18 @@ void MainWindow::onRunFinished()
     updateAppTitle();
     raise(); // for mac OS?
     activateWindow();
+#ifdef __EMSCRIPTEN__
+    // Part 9 Stage 2 (web build): the raise()/activateWindow()
+    // above buries the terminal window under the IDE the moment a
+    // run finishes — the output was delivered but invisible, and
+    // the IDE appeared to "come back by itself" (the production
+    // terminal failure). The console stays on top until the user
+    // closes it, like the PC console window.
+    if (mDbsTerminal) {
+        mDbsTerminal->raise();
+        mDbsTerminal->activateWindow();
+    }
+#endif
 }
 
 void MainWindow::onRunPausingForFinish()
@@ -7357,6 +7917,15 @@ void MainWindow::on_actionFile_Properties_triggered()
 {
     Editor* editor = mEditorManager->getEditor();
     if (editor) {
+#ifdef __EMSCRIPTEN__
+        // Part 9 (web build): read-only dialog, shown non-modally.
+        {
+            FilePropertiesDialog *dialog = new FilePropertiesDialog(editor, this);
+            dialog->setAttribute(Qt::WA_DeleteOnClose);
+            dialog->show();
+        }
+        return;
+#endif
         FilePropertiesDialog dialog(editor,this);
         dialog.exec();
         dialog.setParent(nullptr);
@@ -7430,6 +7999,28 @@ void MainWindow::on_actionProject_options_triggered()
 {
     if (!mProject)
         return;
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): same non-modal conversion as
+    // changeProjectOptions — open() + finished() continuation.
+    if (mDbsWasmProjectOptionsDialog) {
+        mDbsWasmProjectOptionsDialog->raise();
+        mDbsWasmProjectOptionsDialog->activateWindow();
+        return;
+    }
+    {
+        PSettingsDialog dialog = SettingsDialog::projectOptionDialog(mIconsManager.get(),this);
+        mDbsWasmProjectOptionsDialog = dialog;
+        connect(dialog.get(), &QDialog::finished, this, [this]() {
+            mDbsWasmProjectOptionsDialog.reset();
+            updateCompilerSet();
+        });
+        connect(dialog.get(), &QObject::destroyed, this, [this]() {
+            mDbsWasmProjectOptionsDialog.reset();
+        });
+        dialog->open();
+    }
+    return;
+#endif
 //    int oldCompilerSet = mProject->options().compilerSet;
     //QString oldName = mProject->name();
     PSettingsDialog dialog = SettingsDialog::projectOptionDialog(mIconsManager.get(),this);
@@ -7442,6 +8033,19 @@ void MainWindow::on_actionProject_options_triggered()
 
 void MainWindow::on_actionNew_Project_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. The New Project wizard
+    // is a multi-step modal flow, and a project could not be
+    // compiled or run by the online backend anyway (it compiles
+    // single files only) — say so in-app instead of hanging on
+    // the wizard's exec().
+    dbsWasmShowInfo(this, tr("New Project"),
+                    tr("Projects are not available in the web "
+                       "version yet — the online compiler builds "
+                       "single files. Use New Document to create a "
+                       "file; it compiles and runs fully."));
+    return;
+#endif
     NewProjectDialog dialog{mIconsManager.get()};
     if (dialog.exec() == QDialog::Accepted) {
         if (dialog.makeDefaultLanguage()) {
@@ -7583,6 +8187,17 @@ void MainWindow::on_actionProject_New_File_triggered()
 
 void MainWindow::on_actionAdd_to_project_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Adding files to a
+    // project uses local-disk pickers and project machinery the
+    // web version does not support (single files only) — say so
+    // in-app instead of hanging on an exec().
+    dbsWasmShowInfo(this, tr("Projects"),
+                    tr("Project editing is not available in the "
+                       "web version - open and edit the single "
+                       "files instead; they compile and run fully."));
+    return;
+#endif
     if (!mProject)
         return;
     QFileDialog dialog(this,tr("Add to project"),
@@ -7876,6 +8491,15 @@ void MainWindow::prepareTabMessagesData()
 
 void MainWindow::newProjectUnitFile(const QString& suffix)
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable, same as the other
+    // project-editing flows (its dialogs embed exec() calls).
+    dbsWasmShowInfo(this, tr("Projects"),
+                    tr("Project editing is not available in the "
+                       "web version - open and edit the single "
+                       "files instead; they compile and run fully."));
+    return;
+#endif
     if (!mProject)
         return;
     QModelIndex current = mProjectProxyModel->mapToSource(ui->projectView->currentIndex());
@@ -8531,6 +9155,15 @@ void MainWindow::on_tableTODO_doubleClicked(const QModelIndex &index)
 
 void MainWindow::on_actionAbout_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): same dialog, shown non-modally.
+    {
+        AboutDialog *dialog = new AboutDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    }
+    return;
+#endif
     AboutDialog dialog;
     dialog.exec();
 }
@@ -8896,6 +9529,27 @@ void MainWindow::on_actionExport_As_RTF_triggered()
     Editor * editor = mEditorManager->getEditor();
     if (!editor)
         return;
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): export to a scratch file, then hand
+    // the bytes to the browser as a download (Part 8 pattern).
+    {
+        const QString suggested = QFileInfo(editor->filename()).completeBaseName() + ".rtf";
+        const QString tempPath = QDir::temp().filePath(suggested);
+        try {
+            editor->exportAsRTF(tempPath);
+            QFile file(tempPath);
+            if (file.open(QIODevice::ReadOnly)) {
+                const QByteArray bytes = file.readAll();
+                file.close();
+                QFileDialog::saveFileContent(bytes, suggested, editor);
+            }
+            QFile::remove(tempPath);
+        } catch (FileError e) {
+            dbsWasmShowInfo(editor, tr("Error"), e.reason());
+        }
+    }
+    return;
+#endif
     QString rtfFile = QFileDialog::getSaveFileName(editor,
                                  tr("Export As RTF"),
                                  extractFilePath(editor->filename()),
@@ -8918,6 +9572,25 @@ void MainWindow::on_actionExport_As_HTML_triggered()
     Editor * editor = mEditorManager->getEditor();
     if (!editor)
         return;
+#ifdef __EMSCRIPTEN__
+    {
+        const QString suggested = QFileInfo(editor->filename()).completeBaseName() + ".html";
+        const QString tempPath = QDir::temp().filePath(suggested);
+        try {
+            editor->exportAsHTML(tempPath);
+            QFile file(tempPath);
+            if (file.open(QIODevice::ReadOnly)) {
+                const QByteArray bytes = file.readAll();
+                file.close();
+                QFileDialog::saveFileContent(bytes, suggested, editor);
+            }
+            QFile::remove(tempPath);
+        } catch (FileError e) {
+            dbsWasmShowInfo(editor, tr("Error"), e.reason());
+        }
+    }
+    return;
+#endif
     QString htmlFile = QFileDialog::getSaveFileName(editor,
                                  tr("Export As HTML"),
                                  extractFilePath(editor->filename()),
@@ -9081,6 +9754,14 @@ void MainWindow::on_treeFiles_doubleClicked(const QModelIndex &index)
 
 void MainWindow::on_actionOpen_Folder_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Open Folder"),
+                    tr("Opening a folder from this computer is not available in the web version - use Open to bring files in."));
+    return;
+#endif
     QString folder = QFileDialog::getExistingDirectory(this,tr("Choose Working Folder"),
                                                        pSettings->environment().currentFolder());
     if (!folder.isEmpty()) {
@@ -9172,6 +9853,15 @@ void MainWindow::onSaveProblemSet()
 
 void MainWindow::onSaveProblemSetAs()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable — exporting a problem
+    // set picks a file on a local disk that the browser build
+    // does not have (the save-file dialog is an exec()).
+    dbsWasmShowInfo(this, tr("Save Problem Set"),
+                    tr("Exporting a problem set to a file is not "
+                       "available in the web version."));
+    return;
+#endif
     QFileDialog dialog(this);
     dialog.setWindowTitle(tr("Save Problem Set"));
     if (!mOJProblemSetModel->exportFilename().isEmpty()) {
@@ -9199,6 +9889,14 @@ void MainWindow::onSaveProblemSetAs()
 
 void MainWindow::onLoadProblemSet()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Load Problem Set"),
+                    tr("Loading a problem set from a file is not available in the web version."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Load Problem Set"),
@@ -9612,6 +10310,17 @@ void MainWindow::on_actionDelete_to_Word_End_triggered()
 
 void MainWindow::on_actionNew_Header_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Adding files to a
+    // project uses local-disk pickers and project machinery the
+    // web version does not support (single files only) — say so
+    // in-app instead of hanging on an exec().
+    dbsWasmShowInfo(this, tr("Projects"),
+                    tr("Project editing is not available in the "
+                       "web version - open and edit the single "
+                       "files instead; they compile and run fully."));
+    return;
+#endif
     if (!mProject)
         return;
     NewHeaderDialog dialog{mIconsManager.get()};
@@ -9666,6 +10375,17 @@ void MainWindow::on_actionNew_Header_triggered()
 
 void MainWindow::on_actionNew_Class_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Adding files to a
+    // project uses local-disk pickers and project machinery the
+    // web version does not support (single files only) — say so
+    // in-app instead of hanging on an exec().
+    dbsWasmShowInfo(this, tr("Projects"),
+                    tr("Project editing is not available in the "
+                       "web version - open and edit the single "
+                       "files instead; they compile and run fully."));
+    return;
+#endif
     if (!mProject)
         return;
     NewClassDialog dialog(mProject->cppParser(), mIconsManager.get());
@@ -9743,6 +10463,16 @@ void MainWindow::on_actionNew_Class_triggered()
 #ifdef ENABLE_VCS
 void MainWindow::on_actionGit_Create_Repository_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     if (ui->treeFiles->isVisible()) {
         GitManager vcsManager;
         vcsManager.createRepository(pSettings->environment().currentFolder());
@@ -9790,6 +10520,16 @@ void MainWindow::on_actionGit_Create_Repository_triggered()
 
 void MainWindow::on_actionGit_Add_Files_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     if (ui->treeFiles->isVisible()) {
         GitManager vcsManager;
         QModelIndexList indices = ui->treeFiles->selectionModel()->selectedRows();
@@ -9828,6 +10568,16 @@ void MainWindow::on_actionGit_Add_Files_triggered()
 
 void MainWindow::on_actionGit_Commit_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -9886,6 +10636,16 @@ void MainWindow::on_actionGit_Commit_triggered()
 
 void MainWindow::on_actionGit_Restore_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -9916,6 +10676,16 @@ void MainWindow::on_actionGit_Restore_triggered()
 
 void MainWindow::on_actionGit_Branch_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -9937,6 +10707,16 @@ void MainWindow::on_actionGit_Branch_triggered()
 
 void MainWindow::on_actionGit_Merge_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -9959,6 +10739,16 @@ void MainWindow::on_actionGit_Merge_triggered()
 
 void MainWindow::on_actionGit_Log_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -9982,6 +10772,16 @@ void MainWindow::on_actionGit_Log_triggered()
 
 void MainWindow::on_actionGit_Remotes_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -9997,6 +10797,16 @@ void MainWindow::on_actionGit_Remotes_triggered()
 
 void MainWindow::on_actionGit_Fetch_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -10016,6 +10826,16 @@ void MainWindow::on_actionGit_Fetch_triggered()
 
 void MainWindow::on_actionGit_Pull_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -10051,6 +10871,16 @@ void MainWindow::on_actionGit_Pull_triggered()
 
 void MainWindow::on_actionGit_Push_triggered()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable. Git needs a local git
+    // installation; a browser has none — and every dialog in this
+    // flow would hit the exec() wall. Say so, never hang.
+    dbsWasmShowInfo(this, tr("Git"),
+                    tr("Git is not available in the web version - "
+                       "version control needs a local Git "
+                       "installation."));
+    return;
+#endif
     QString folder;
     if (ui->treeFiles->isVisible()) {
         folder = pSettings->environment().currentFolder();
@@ -10130,6 +10960,14 @@ void MainWindow::on_actionMatch_Bracket_triggered()
 
 void MainWindow::on_btnProblemCaseInputFileName_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Choose Input Data File"),
+                    tr("Picking a file from this computer is not available in the web version - type or paste the input in the case editor."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Choose Input Data File"),
@@ -10185,6 +11023,14 @@ void MainWindow::on_btnProblemCaseClearInputFileName_clicked()
 
 void MainWindow::on_btnProblemCaseExpectedOutputFileName_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Choose Expected Output File"),
+                    tr("Picking a file from this computer is not available in the web version - type or paste the expected output in the case editor."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Choose Expected Output Data File"),
@@ -10351,6 +11197,35 @@ void MainWindow::on_actionGo_to_Line_triggered()
     Editor* e=mEditorManager->getEditor();
     if (!e)
         return;
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): QInputDialog::getInt is a static
+    // exec() — the same dialog object shown non-modally instead,
+    // with the jump applied from its intValueSelected signal.
+    {
+        auto *dialog = new QInputDialog(e);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setInputMode(QInputDialog::IntInput);
+        dialog->setWindowTitle(tr("Go to Line"));
+        dialog->setLabelText(tr("Line"));
+        dialog->setIntRange(1, e->lineCount());
+        dialog->setIntValue(e->caretY() + 1);
+        dialog->setIntStep(1);
+        QPointer<Editor> editorGuard(e);
+        connect(dialog, &QInputDialog::intValueSelected, this,
+                [editorGuard](int line) {
+            if (!editorGuard)
+                return;
+            const int target = line - 1; // editor lines start at 0
+            if (target != editorGuard->caretY()) {
+                editorGuard->setCaretPosition(
+                            QSynedit::CharPos{0, target});
+                editorGuard->setFocus();
+            }
+        });
+        dialog->open();
+    }
+    return;
+#endif
     bool ok;
     int line=QInputDialog::getInt(e,tr("Go to Line"),tr("Line"),
                                     e->caretY(),1,e->lineCount(),
@@ -10450,6 +11325,14 @@ void MainWindow::on_actionGenerate_Assembly_triggered()
 
 void MainWindow::onImportFPSProblemSet()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Import FPS Problem Set"),
+                    tr("Importing a problem set from a file is not available in the web version."));
+    return;
+#endif
     QString fileName = QFileDialog::getOpenFileName(
                 this,
                 tr("Import FPS Problem Set"),
@@ -10481,6 +11364,14 @@ void MainWindow::on_actionTrim_trailing_spaces_triggered()
 
 void MainWindow::onExportFPSProblemSet()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): honest-disable - this flow
+    // picks file(s) from the local disk (static getter
+    // = exec()).
+    dbsWasmShowInfo(this, tr("Export FPS Problem Set"),
+                    tr("Exporting a problem set to a file is not available in the web version."));
+    return;
+#endif
     QString fileName = QFileDialog::getSaveFileName(
                 this,
                 tr("Export FPS Problem Set"),

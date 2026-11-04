@@ -20,6 +20,11 @@
 #include "../systemconsts.h"
 #include <QElapsedTimer>
 #include <QProcess>
+#ifdef __EMSCRIPTEN__
+#include "../wasmshim/qprocess_wasm.h" // QProcess is absent in Qt for WebAssembly
+#include "onlinebackend.h"
+#include <QPointer>
+#endif
 #ifdef Q_OS_WINDOWS
 #include <psapi.h>
 #endif
@@ -220,9 +225,36 @@ void OJProblemCasesRunner::runCase(int index,POJProblemCase problemCase)
 
 void OJProblemCasesRunner::run()
 {
+#if defined(__EMSCRIPTEN__) && defined(DBS_WASM_ST)
+    // Part 6, single-thread build: no finally guard — terminated()
+    // is emitted when the asynchronous case chain finishes (or at
+    // once on a setup failure), not when this function returns.
+    {
+        const QString sourceFile = dbsOnlineFindSourceForExecutable(mFilename);
+        if (sourceFile.isEmpty()) {
+            emit runErrorOccurred(tr("Couldn't find the source file for \"%1\".")
+                                  .arg(mFilename));
+            emit terminated();
+            return;
+        }
+        mOnlineLanguage = dbsOnlineLanguageForFilename(sourceFile);
+        mOnlineCode = QString::fromUtf8(readFileToByteArray(sourceFile));
+        if (mProblemCases.isEmpty()) {
+            emit terminated();
+            return;
+        }
+        runOnlineCaseAsync(0);
+    }
+    return;
+#endif
     auto action = finally([this]{
         emit terminated();
     });
+#ifdef __EMSCRIPTEN__
+    // Web build: no local process exists to run the cases with.
+    runOnlineCases();
+    return;
+#endif
     for (int i=0; i < mProblemCases.size(); i++) {
         if (mStop)
             break;
@@ -230,6 +262,112 @@ void OJProblemCasesRunner::run()
         runCase(i,problemCase);
     }
 }
+
+#ifdef __EMSCRIPTEN__
+// Web build: each case is one /api/run round trip with the case's
+// input as stdin. The same signals the native per-case process flow
+// emits (caseStarted / newOutputGetted / resetOutput / caseFinished)
+// are emitted here, and problemCase->output / runningTime are filled
+// the same way, so MainWindow's validation works unchanged. Limits
+// differ honestly from native: the per-case exec timeout and memory
+// limit settings can't be enforced around a synchronous request —
+// the server caps execution itself (~30 s, Judge0 limits) and
+// reports time-limit failures in the result's stderr.
+void OJProblemCasesRunner::runOnlineCases()
+{
+    const QString sourceFile = dbsOnlineFindSourceForExecutable(mFilename);
+    if (sourceFile.isEmpty()) {
+        emit runErrorOccurred(tr("Couldn't find the source file for \"%1\".")
+                              .arg(mFilename));
+        return;
+    }
+    const QString language = dbsOnlineLanguageForFilename(sourceFile);
+    const QString code = QString::fromUtf8(
+                readFileToByteArray(sourceFile));
+    for (int i = 0; i < mProblemCases.size(); i++) {
+        if (mStop)
+            break;
+        POJProblemCase problemCase = mProblemCases[i];
+        emit caseStarted(problemCase->id(), i, mProblemCases.count());
+        const QString input = onlineCaseInput(problemCase);
+        problemCase->output.clear();
+        const DbsOnlineRunResult result = dbsOnlineRunCode(
+                    language, code, input);
+        applyOnlineCaseResult(problemCase, result);
+        emit caseFinished(problemCase->id(), i, mProblemCases.count());
+    }
+}
+
+QString OJProblemCasesRunner::onlineCaseInput(
+        const POJProblemCase &problemCase)
+{
+    if (fileExists(problemCase->inputFileName()))
+        return QString::fromUtf8(
+                    readFileToByteArray(problemCase->inputFileName()));
+    return problemCase->input();
+}
+
+void OJProblemCasesRunner::applyOnlineCaseResult(
+        const POJProblemCase &problemCase,
+        const DbsOnlineRunResult &result)
+{
+    problemCase->runningTime =
+            static_cast<qulonglong>(result.timeMs);
+    problemCase->runningMemory = 0;
+    if (!result.networkOk) {
+        problemCase->output = result.networkError;
+        emit resetOutput(problemCase->id(), problemCase->output);
+    } else if (result.stage == QLatin1String("compile")
+               || result.stage == QLatin1String("input")) {
+        problemCase->output = result.stdErr;
+        emit resetOutput(problemCase->id(), problemCase->output);
+    } else {
+        QString output = result.stdOut;
+        if (pSettings->executor().redirectStderrToToolLog()) {
+            if (!result.stdErr.isEmpty())
+                emit logStderrOutput(result.stdErr);
+        } else {
+            output += result.stdErr;
+        }
+        problemCase->output = output;
+        emit newOutputGetted(problemCase->id(), output);
+    }
+}
+
+#ifdef DBS_WASM_ST
+// Part 6, single-thread build: the asynchronous twin of
+// runOnlineCases() — identical per-case behaviour, but the cases
+// are chained through fetch replies on the main thread instead of
+// blocking a worker thread on synchronous requests.
+void OJProblemCasesRunner::runOnlineCaseAsync(int index)
+{
+    POJProblemCase problemCase = mProblemCases[index];
+    emit caseStarted(problemCase->id(), index, mProblemCases.count());
+    const QString input = onlineCaseInput(problemCase);
+    problemCase->output.clear();
+    QPointer<OJProblemCasesRunner> self(this);
+    dbsOnlineRunCodeAsync(mOnlineLanguage, mOnlineCode, input,
+        [self, index](const DbsOnlineRunResult &result) {
+            if (self)
+                self->handleOnlineCaseResult(index, result);
+        });
+}
+
+void OJProblemCasesRunner::handleOnlineCaseResult(
+        int index, const DbsOnlineRunResult &result)
+{
+    POJProblemCase problemCase = mProblemCases[index];
+    applyOnlineCaseResult(problemCase, result);
+    emit caseFinished(problemCase->id(), index, mProblemCases.count());
+    const int next = index + 1;
+    if (mStop || next >= mProblemCases.count()) {
+        emit terminated();
+        return;
+    }
+    runOnlineCaseAsync(next);
+}
+#endif // DBS_WASM_ST
+#endif // __EMSCRIPTEN__
 
 int OJProblemCasesRunner::execTimeout() const
 {

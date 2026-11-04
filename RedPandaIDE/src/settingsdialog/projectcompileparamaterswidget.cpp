@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "projectcompileparamaterswidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_projectcompileparamaterswidget.h"
 #include "../mainwindow.h"
 #include "../project.h"
@@ -71,6 +74,16 @@ void ProjectCompileParamatersWidget::doSave()
 
 void ProjectCompileParamatersWidget::on_btnChooseLib_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): local file/folder picker (static
+    // getter = exec()) - honest-disable, see the other settings
+    // pickers. The path field stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
 #ifdef Q_OS_WIN
     QString filter = tr("Library Files")+" (*.a *.lib *.o)";
 #else

@@ -599,6 +599,16 @@ void DbsUpdateDialog::setCompleteState(bool alreadyDownloaded)
 
 void DbsUpdateDialog::tryLaunchInstaller(bool automatic)
 {
+#ifdef __EMSCRIPTEN__
+    // Web build: there is no installer to launch (and
+    // QProcess::startDetached does not exist in Qt for WebAssembly).
+    // Unreachable in practice — MainWindow::dbsCheckForUpdates() is a
+    // no-op on the web build, so this dialog is never shown there.
+    Q_UNUSED(automatic);
+    mStatusLabel->setText(
+                tr("Updates are automatic in the web version."));
+    return;
+#else
     const bool launched = QProcess::startDetached(mFinalPath,
                                                   QStringList{});
     if (launched) {
@@ -630,6 +640,7 @@ void DbsUpdateDialog::tryLaunchInstaller(bool automatic)
                        "started from here. You can run it yourself "
                        "from this exact place:\n%1").arg(mFinalPath));
     }
+#endif // __EMSCRIPTEN__
 }
 
 void DbsUpdateDialog::closeEvent(QCloseEvent *event)

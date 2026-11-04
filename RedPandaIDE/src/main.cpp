@@ -387,10 +387,34 @@ int main(int argc, char *argv[])
         }
         if (firstRun) {
             //set theme
+#ifdef __EMSCRIPTEN__
+            // Part 7 (WASM startup-abort hunt): do NOT run the modal
+            // ChooseThemeDialog on the web. Every fresh browser
+            // profile lands here on its first open, before the main
+            // window exists, and this exec() is the only modal nested
+            // event loop on the whole startup path — the prime
+            // suspect for the traceless post-download "Application
+            // exit" seen on real devices (download completes, the IDE
+            // never appears). Apply the dialog's own defaults
+            // instead — Dark theme, C++, shared parser (the radio
+            // buttons its constructor pre-checks; the Auto option is
+            // hidden without the Lua add-on) — which is exactly what
+            // an immediate OK would persist. The theme can still be
+            // changed later from inside the app.
+            const ChooseThemeDialog::Theme firstRunTheme =
+                    ChooseThemeDialog::Theme::Dark;
+            const bool firstRunDefaultCpp = true;
+            const bool firstRunShareParser = true;
+#else
             ChooseThemeDialog themeDialog;
             themeDialog.setFont(QFont(defaultUiFont(),11));
             themeDialog.exec();
-            switch (themeDialog.theme()) {
+            const ChooseThemeDialog::Theme firstRunTheme = themeDialog.theme();
+            const bool firstRunDefaultCpp =
+                    themeDialog.language()==ChooseThemeDialog::Language::CPlusPlus;
+            const bool firstRunShareParser = themeDialog.shareParser();
+#endif
+            switch (firstRunTheme) {
             case ChooseThemeDialog::Theme::AutoFollowSystem:
                 setTheme("system");
                 break;
@@ -404,8 +428,8 @@ int main(int argc, char *argv[])
                 setTheme("default");
             }
 
-            pSettings->editor().setDefaultFileCpp(themeDialog.language()==ChooseThemeDialog::Language::CPlusPlus);
-            if (themeDialog.shareParser()) {
+            pSettings->editor().setDefaultFileCpp(firstRunDefaultCpp);
+            if (firstRunShareParser) {
                 pSettings->codeCompletion().setShareParser(true);
                 pSettings->codeCompletion().setClearWhenEditorHidden(true);
             } else {

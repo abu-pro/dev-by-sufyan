@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "environmentfolderswidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_environmentfolderswidget.h"
 #include "../settings.h"
 #include "../mainwindow.h"
@@ -63,6 +66,33 @@ void EnvironmentFoldersWidget::on_btnOpenConfigFolderInBrowser_clicked()
 
 void EnvironmentFoldersWidget::on_btnResetDefault_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): async confirmation (the static
+    // question() exec()s); the destructive reset runs only on an
+    // explicit Yes, then shouldQuitApp quits as on PC.
+    {
+        auto *box = new QMessageBox(QMessageBox::Question,
+                    tr("Confirm"),
+                    tr("Do you really want to delete all custom settings?"),
+                    QMessageBox::Yes | QMessageBox::No, this);
+        box->setDefaultButton(QMessageBox::No);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        connect(box, &QMessageBox::buttonClicked, this,
+                [this, box](QAbstractButton *button) {
+            if (button != box->button(QMessageBox::Yes))
+                return;
+            QDir dir(pSettings->dirs().config());
+            if (!dir.removeRecursively()) {
+                dbsWasmShowInfo(this, tr("Error"),
+                                tr("Failed to delete custom settings."));
+                return;
+            }
+            emit shouldQuitApp();
+        });
+        box->open();
+    }
+    return;
+#endif
     if (QMessageBox::question(this,tr("Confirm"),
                           tr("Do you really want to delete all custom settings?"),
                           QMessageBox::Yes|QMessageBox::No,

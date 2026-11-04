@@ -230,6 +230,12 @@ target_link_libraries(RedPandaIDE PRIVATE
 #    $<$<CONFIG:MinSizeRel>:-s -static>
 #)
 
+# Dev by Sufyan WASM port (Part 2): the console test executables below
+# (test-editor, test-cppparser) link as plain add_executable targets and
+# miss Qt's WASM Embind glue (undefined _emval_* symbols). They are dev
+# tests, not part of the shipped IDE, so skip them for Emscripten only.
+if(NOT EMSCRIPTEN)
+
 #####################
 # test-editor       #
 #####################
@@ -375,6 +381,8 @@ add_test(
 
 add_dependencies(all-test-targets test-cppparser)
 
+endif() # NOT EMSCRIPTEN (test executables)
+
 #####################
 # Platform-specific #
 #####################
@@ -450,7 +458,9 @@ set (MAIN_PROGRAM_PATH_DEFS
     PORTABLE_CONFIG_registry=3)
 
 target_compile_definitions(RedPandaIDE PRIVATE ${MAIN_PROGRAM_PATH_DEFS})
-target_compile_definitions(test-editor PRIVATE ${MAIN_PROGRAM_PATH_DEFS})
+if(NOT EMSCRIPTEN) # test-editor is not built for Emscripten (see above)
+    target_compile_definitions(test-editor PRIVATE ${MAIN_PROGRAM_PATH_DEFS})
+endif()
 
 ###################
 # Feature options #
@@ -465,6 +475,61 @@ if(LUA_ADDON)
     target_compile_definitions(RedPandaIDE PRIVATE ENABLE_LUA_ADDON)
 
     target_link_libraries(RedPandaIDE PRIVATE lua)
+endif()
+
+if(EMSCRIPTEN)
+    # Dev by Sufyan WASM port (Part 2):
+    # - src/wasmshim/qprocess_wasm: minimal QProcess stand-in. Qt for
+    #   WebAssembly is built with QT_FEATURE_process off, so the class
+    #   does not exist there; the shim lets the process-using sources
+    #   compile unchanged (its start() simply always fails — the real
+    #   work is rerouted to the online backend below, and the debugger
+    #   is disabled in the web UI).
+    # - src/compiler/onlinebackend: synchronous POST to the /api/run
+    #   endpoint (same contract as the web client) + the Runner that
+    #   surfaces program output in the IDE's own output panel.
+    target_moc_classes(RedPandaIDE
+        src/wasmshim/qprocess_wasm
+        src/compiler/onlinebackend
+        # Part 9: terminal-style window for online Run output.
+        src/wasmshim/dbsterminal)
+
+    # Dev by Sufyan WASM port (Part 6): single-threaded variant for
+    # browsers where SharedArrayBuffer is unavailable (no cross-origin
+    # isolation), built with the wasm_singlethread Qt kit. Under
+    # DBS_WASM_ST the online backend uses ASYNCHRONOUS emscripten_fetch
+    # from the main thread (a synchronous fetch is only legal on a
+    # pthread worker, which this kit does not have) and the
+    # compiler/runner completion sequencing keys off the app-level
+    # finished signals instead of QThread::finished. The multithread
+    # build (option OFF, the default) is behavior-identical to Part 2.
+    option(DBS_WASM_SINGLETHREAD "Dev by Sufyan WASM: single-threaded variant (no SharedArrayBuffer/pthreads; async online backend)" OFF)
+    if(DBS_WASM_SINGLETHREAD)
+        target_compile_definitions(RedPandaIDE PRIVATE DBS_WASM_ST=1)
+    endif()
+
+    # The IDE target is created with plain add_executable() upstream,
+    # so it misses the finalizer qt_add_executable() would have run:
+    # embind linkage (without it libQt6Core's _emval_* symbols stay
+    # undefined), the JS export name, and generation of the
+    # .html/qtloader.js shell. Run Qt's own WASM finalizer for it.
+    _qt_internal_finalize_wasm_app(RedPandaIDE)
+
+    # The IDE's static data alone needs ~24 MB, over Emscripten's
+    # 16 MB default initial memory; in the multithreaded
+    # (shared-memory) configuration wasm-ld then refuses the link.
+    # Start at 64 MB — ALLOW_MEMORY_GROWTH (set by Qt's platform
+    # properties) lets it grow from there.
+    target_link_options(RedPandaIDE PRIVATE "SHELL:-s INITIAL_MEMORY=67108864")
+
+    # Dev by Sufyan WASM port (Part 9 Stage 2): link Emscripten's
+    # IDBFS so FS.filesystems.IDBFS exists at runtime — the browser
+    # launcher mounts it over the app home (/home/web_user) for
+    # real file persistence across reloads. Without this flag the
+    # filesystem object silently contains MEMFS only, every syncfs
+    # "succeeds" against no persistent mount, and nothing survives
+    # a reload (the Stage 1 persistence failure).
+    target_link_options(RedPandaIDE PRIVATE "-lidbfs.js")
 endif()
 
 if(SDCC)
@@ -512,6 +577,21 @@ target_sources(RedPandaIDE PRIVATE
     defaultconfigs.qrc
     icons.qrc
     projecttemplates.qrc)
+
+if(EMSCRIPTEN)
+    # Part 7 (root cause of the WASM startup abort): the Qt WASM
+    # kits are built with QT_FEATURE_zstd off, so a zstd-compressed
+    # resource can never be decompressed at runtime — QFile on any
+    # ":/…" entry fails, and the first startup read that throws on
+    # failure (the terminal list in EnvironmentSettings) killed the
+    # app after the download, before any window appeared. rcc
+    # compresses with zstd by default, so store the app's resources
+    # UNCOMPRESSED in web builds; the qResourceFeatureZstd()==0 shim
+    # in the QProcess shim file is then truthful. (Translations
+    # embedded by target_embed_translations below may stay
+    # compressed/unreadable — worst case the web UI is English.)
+    set_target_properties(RedPandaIDE PROPERTIES AUTORCC_OPTIONS "--no-compress")
+endif()
 
 # translation
 

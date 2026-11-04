@@ -1,6 +1,9 @@
 /* by XY0797 2024.2.21 */
 
 #include "filenameeditdelegate.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QRegularExpression>
@@ -86,17 +89,29 @@ void FilenameEditDelegate::setModelData(QWidget *editor, QAbstractItemModel *mod
 
     // Check for trailing/leading spaces — universally problematic
     if (originalText != trimmedText) {
+        #ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(editor->window(),
+                        tr("Invalid Name"),
+                        tr("File or folder name cannot have leading or trailing spaces."));
+#else
         QMessageBox::critical(editor->window(),
                              tr("Invalid Name"),
                              tr("File or folder name cannot have leading or trailing spaces."));
+#endif
         return;
     }
 
     // Check for empty name
     if (trimmedText.isEmpty()) {
+        #ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(editor->window(),
+                        tr("Invalid Name"),
+                        tr("File or folder name cannot be empty."));
+#else
         QMessageBox::critical(editor->window(),
                              tr("Invalid Name"),
                              tr("File or folder name cannot be empty."));
+#endif
         return;
     }
 
@@ -120,9 +135,15 @@ void FilenameEditDelegate::setModelData(QWidget *editor, QAbstractItemModel *mod
 #else
     // Unix/macOS: only '/' is forbidden in filenames
     if (trimmedText.contains('/')) {
+        #ifdef __EMSCRIPTEN__
+        dbsWasmShowInfo(editor->window(),
+                        tr("Invalid Name"),
+                        tr("File or folder name cannot contain '/'."));
+#else
         QMessageBox::critical(editor->window(),
                              tr("Invalid Name"),
                              tr("File or folder name cannot contain '/'."));
+#endif
         return;
     }
 #endif

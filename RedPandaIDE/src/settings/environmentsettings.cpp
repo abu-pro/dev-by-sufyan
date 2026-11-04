@@ -283,10 +283,18 @@ void EnvironmentSettings::checkAndSetTerminal()
         }
     }
     //Can't Find a term
+#ifndef __EMSCRIPTEN__
     QMessageBox::critical(
                 nullptr,
                 QCoreApplication::translate("Settings","Error"),
                 QCoreApplication::translate("Settings","Can't find terminal program!"));
+#else
+    // Part 7: the web version has no terminal program and can
+    // never run one (no local processes in the browser); the modal
+    // box above would enter exec(), which is unsupported under Qt
+    // for WebAssembly without asyncify and aborts startup. Stay
+    // silent on the web — the empty terminal path is expected.
+#endif
 }
 
 QMap<QString, QString> EnvironmentSettings::terminalArgsPatternMagicVariables()

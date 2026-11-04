@@ -15,6 +15,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 #include "projectmakefilewidget.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_projectmakefilewidget.h"
 #include "compilersetdirectorieswidget.h"
 #include "../mainwindow.h"
@@ -58,6 +61,17 @@ void ProjectMakefileWidget::doSave()
 
 void ProjectMakefileWidget::on_btnBrowse_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): this button picks a file or folder on
+    // the local computer - a browser has no local disk to pick
+    // from, and the static getter is an exec(). The path field
+    // stays editable as text.
+    dbsWasmShowInfo(this, tr("Browse"),
+                    tr("Picking files or folders from this "
+                       "computer is not available in the web "
+                       "version."));
+    return;
+#endif
     QString currentFile=ui->txtCustomMakefile->text();
     if (currentFile.isEmpty()) {
         currentFile = pMainWindow->project()->directory();
@@ -82,6 +96,15 @@ void ProjectMakefileWidget::updateIcons(const QSize &)
 
 void ProjectMakefileWidget::on_btnInfo_clicked()
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): read-only info dialog, non-modal.
+    {
+        CustomMakefileInfoDialog *dialog = new CustomMakefileInfoDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+    }
+    return;
+#endif
     CustomMakefileInfoDialog dialog(this);
     dialog.exec();
 }

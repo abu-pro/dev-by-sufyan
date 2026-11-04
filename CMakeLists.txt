@@ -272,7 +272,13 @@ if (LUA_ADDON)
 endif()
 add_subdirectory(libs/qsynedit)
 add_subdirectory(libs/redpanda_qt_utils)
-add_subdirectory(tools/consolepauser)
+# Dev by Sufyan WASM port (Part 2): consolepauser is the native helper that
+# pauses the console after running a compiled program. It has no browser
+# purpose (and uses POSIX wait4, which WASM lacks), so skip it for
+# Emscripten builds only; native builds are unchanged.
+if(NOT EMSCRIPTEN)
+    add_subdirectory(tools/consolepauser)
+endif()
 
 if (VCS)
     if (WIN32)

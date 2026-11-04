@@ -582,6 +582,17 @@ bool EditorManager::closeEditor(Editor* editor, bool transferFocus, bool force) 
     if (force) {
         editor->save(true,false);
     } else if ( (editor->modified()) && (!editor->empty())) {
+#ifdef __EMSCRIPTEN__
+        // Web build: QMessageBox::question() is a modal exec() and
+        // wedges the page (Part 8). Default to the data-preserving
+        // answer — Save — then close: the file is written and
+        // delivered as a browser download. If the save fails, the
+        // editor stays open, exactly like answering Cancel.
+        editor->dbsRequestDownloadAfterSave();
+        if (!editor->save(false,false)) {
+            return false;
+        }
+#else
         // ask user if he wants to save
         QMessageBox::StandardButton reply;
         reply = QMessageBox::question(editor,QObject::tr("Save"),
@@ -594,6 +605,7 @@ bool EditorManager::closeEditor(Editor* editor, bool transferFocus, bool force) 
                 return false;
             }
         }
+#endif
     }
 
     beginUpdate();
@@ -667,8 +679,12 @@ void EditorManager::saveAll()
 {
     for (int i=0;i<pageCount();i++) {
         Editor * e= (*this)[i];
-        if (e->modified())
+        if (e->modified()) {
+#ifdef __EMSCRIPTEN__
+            e->dbsRequestDownloadAfterSave();
+#endif
             e->save();
+        }
     }
 }
 

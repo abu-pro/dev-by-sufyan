@@ -26,6 +26,22 @@ ProcessOutput runAndGetOutput(const QString &cmd, const QString& workingDir, con
                            bool inheritEnvironment,
                            const QProcessEnvironment& env)
 {
+#ifdef __EMSCRIPTEN__
+    // No child processes exist in a browser. Callers of this helper
+    // (the code formatter, git integration, external tools) receive a
+    // clear error instead of a half-started process. Compile & Run do
+    // NOT come through here — they use the online /api/run backend.
+    Q_UNUSED(cmd);
+    Q_UNUSED(workingDir);
+    Q_UNUSED(arguments);
+    Q_UNUSED(inputContent);
+    Q_UNUSED(separateStderr);
+    Q_UNUSED(inheritEnvironment);
+    Q_UNUSED(env);
+    return {QByteArray(), QByteArray(),
+            QStringLiteral("External programs can't be run in the web "
+                           "version of Dev by Sufyan.")};
+#endif
     QProcess process;
     QByteArray standardOutput;
     QByteArray standardError;

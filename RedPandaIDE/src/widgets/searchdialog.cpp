@@ -1,4 +1,7 @@
 #include "searchdialog.h"
+#ifdef __EMSCRIPTEN__
+#include "../rooms/dbstheme.h"
+#endif
 #include "ui_searchdialog.h"
 
 #include <QCompleter>
@@ -128,11 +131,20 @@ void SearchDialog::doSearch(bool backward)
                         } else {
                             p=pMainWindow;
                         }
+#ifdef __EMSCRIPTEN__
+                        // Part 9 (web build): the static
+                        // question() exec()s inside the search
+                        // engine's callback - take its default
+                        // (Yes: wrap around and continue).
+                        Q_UNUSED(p);
+                        return true;
+#else
                         return QMessageBox::question(p,
                           tr("Continue Search"),
                           msg,
                           QMessageBox::Yes|QMessageBox::No,
                           QMessageBox::Yes) == QMessageBox::Yes;
+#endif
         });
         if (foundCount==0) {
             QWidget *p;
@@ -141,10 +153,15 @@ void SearchDialog::doSearch(bool backward)
             } else {
                 p=pMainWindow;
             }
+#ifdef __EMSCRIPTEN__
+            dbsWasmShowInfo(p, tr("Not Found"),
+                            tr("Can't find '%1'").arg(ui->cbFind->currentText()));
+#else
             QMessageBox::information(
                 p,
                 tr("Not Found"),
                 tr("Can't find '%1'").arg(ui->cbFind->currentText()));
+#endif
         } else {
             if (ui->rbEntireScope->isChecked()) {
                 ui->rbFromCaret->setChecked(true);
@@ -208,11 +225,20 @@ void SearchDialog::doReplace(bool replaceAll)
                         } else {
                             p=pMainWindow;
                         }
+#ifdef __EMSCRIPTEN__
+                        // Part 9 (web build): the static
+                        // question() exec()s inside the search
+                        // engine's callback - take its default
+                        // (Yes: wrap around and continue).
+                        Q_UNUSED(p);
+                        return true;
+#else
                         return QMessageBox::question(p,
                           tr("Continue Search"),
                           msg,
                           QMessageBox::Yes|QMessageBox::No,
                           QMessageBox::Yes) == QMessageBox::Yes;
+#endif
         });
     }
 }

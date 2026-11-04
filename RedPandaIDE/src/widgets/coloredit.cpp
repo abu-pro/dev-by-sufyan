@@ -108,6 +108,25 @@ void ColorEdit::paintEvent(QPaintEvent *)
 
 void ColorEdit::mouseReleaseEvent(QMouseEvent *)
 {
+#ifdef __EMSCRIPTEN__
+    // Part 9 (web build): the static getColor() exec()s — the
+    // same dialog object shown non-modally instead.
+    {
+        auto *dialog = new QColorDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setCurrentColor(mColor);
+        dialog->setOptions(QColorDialog::ShowAlphaChannel
+                           | QColorDialog::DontUseNativeDialog);
+        dialog->setWindowTitle(tr("Color"));
+        connect(dialog, &QColorDialog::colorSelected, this,
+                [this](const QColor &c) {
+            if (c.isValid())
+                setColor(c);
+        });
+        dialog->open();
+    }
+    return;
+#endif
     QColor c = QColorDialog::getColor(mColor,nullptr,tr("Color"),
                                       QColorDialog::ShowAlphaChannel | QColorDialog::DontUseNativeDialog);
     if (c.isValid()) {
