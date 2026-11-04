@@ -195,6 +195,18 @@ void MainWindow::setupRooms()
             mRoomsPanel->focusJoinField();
     });
     roomsMenu->addAction(tr("Leave Room"), this, &MainWindow::onRoomLeaveRequested);
+    // 2026-11-04: my own document's edit history, one menu step away
+    // (the same dialog the Members tab's "Edit history…" opens).
+    QAction *myHistoryAction = roomsMenu->addAction(tr("My edit history"));
+    connect(myHistoryAction, &QAction::triggered, this, [this]() {
+        if (mRoomClient && mRoomClient->isInRoom())
+            onRoomHistoryRequested(mRoomClient->selfId());
+        else
+            showRoomChatWindow();
+    });
+    QAction *activityAction = roomsMenu->addAction(tr("Room activity"));
+    connect(activityAction, &QAction::triggered, this,
+            [this]() { selectRoomsTab(3); });
     roomsMenu->addSeparator();
     // v1.4.0: admin runs everyone's code on one input and compares the
     // outputs; Side by Side puts a member's live code next to your own.
@@ -221,6 +233,13 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomKickRequested);
     connect(mRoomsPanel, &RoomsPanel::restrictRequested,
             this, &MainWindow::onRoomRestrictRequested);
+    // 2026-11-04: grants + history + copy/fork panel intents.
+    connect(mRoomsPanel, &RoomsPanel::grantEditRequested,
+            this, &MainWindow::onRoomGrantEditRequested);
+    connect(mRoomsPanel, &RoomsPanel::historyRequested,
+            this, &MainWindow::onRoomHistoryRequested);
+    connect(mRoomsPanel, &RoomsPanel::copyToMyFileRequested,
+            this, &MainWindow::onRoomCopyToMyFileRequested);
     connect(mRoomsPanel, &RoomsPanel::applySettingsRequested,
             this, &MainWindow::onRoomApplySettingsRequested);
     connect(mRoomsPanel, &RoomsPanel::messagesRequested,
@@ -263,6 +282,13 @@ void MainWindow::setupRooms()
             this, &MainWindow::onRoomMemberTyping);
     connect(mRoomClient, &RoomClient::memberRestricted,
             this, &MainWindow::onRoomMemberRestricted);
+    // 2026-11-04: grant broadcasts, activity events, history answers.
+    connect(mRoomClient, &RoomClient::adminDocGranted,
+            this, &MainWindow::onRoomAdminDocGranted);
+    connect(mRoomClient, &RoomClient::roomEventReceived,
+            this, &MainWindow::onRoomEventReceived);
+    connect(mRoomClient, &RoomClient::docHistoryReceived,
+            this, &MainWindow::onRoomDocHistoryReceived);
     // v1.4.0: live cursors + admin line pointing.
     connect(mRoomClient, &RoomClient::memberCursor,
             this, &MainWindow::onRoomMemberCursor);
@@ -361,6 +387,134 @@ void MainWindow::onRoomMemberRestricted(const QString &targetId,
         statusBar()->showMessage(restricted
             ? tr("%1 can no longer edit other members' code.").arg(name)
             : tr("%1 can edit other members' code again.").arg(name), 5000);
+}
+
+// ---------------------------------------------------------------------------
+// 2026-11-04: admin-code edit grants, edit history, copy/fork, activity
+// ---------------------------------------------------------------------------
+
+void MainWindow::onRoomGrantEditRequested(const QString &memberId,
+                                          bool granted)
+{
+    if (mRoomClient)
+        mRoomClient->grantAdminDoc(memberId, granted);
+}
+
+void MainWindow::onRoomAdminDocGranted(const QString &targetId,
+                                       bool granted)
+{
+    QString name;
+    for (RoomMemberInfo &member : mRoomMembers)
+        if (member.id == targetId) {
+            member.canEditAdminDoc = granted;
+            name = member.name;
+        }
+    if (mRoomsPanel)
+        mRoomsPanel->setMembers(mRoomMembers, mRoomClient->selfId());
+    // The admin's document (if open here) locks/unlocks live — no
+    // rejoin needed, exactly like the web client.
+    applyRoomEditability();
+    // Status-bar toasts mirror the web client's toast texts.
+    if (targetId == mRoomClient->selfId()) {
+        statusBar()->showMessage(granted
+            ? tr("The admin gave you permission to edit their code.")
+            : tr("The admin took back permission to edit their code."),
+            6000);
+    } else if (mRoomClient->isAdmin() && !name.isEmpty()) {
+        statusBar()->showMessage(granted
+            ? tr("%1 can now edit your code.").arg(name)
+            : tr("%1 can no longer edit your code.").arg(name), 5000);
+    }
+}
+
+void MainWindow::onRoomEventReceived(const RoomEvent &event)
+{
+    if (mRoomsPanel)
+        mRoomsPanel->addRoomEvent(event);
+}
+
+void MainWindow::onRoomHistoryRequested(const QString &memberId)
+{
+    if (!mRoomClient || !mRoomClient->isInRoom())
+        return;
+    const RoomMemberInfo *member = roomMember(memberId);
+    if (!member)
+        return;
+    // The dialog is the panel's (it may already be open — e. from
+    // the Rooms menu's "My edit history"); the request follows.
+    if (mRoomsPanel)
+        mRoomsPanel->openHistoryDialog(memberId, member->name);
+    mRoomClient->requestDocHistory(memberId);
+}
+
+void MainWindow::onRoomDocHistoryReceived(
+        const QString &targetId,
+        const QVector<RoomHistoryEntry> &entries, bool denied)
+{
+    if (mRoomsPanel)
+        mRoomsPanel->setDocHistory(targetId, entries, denied);
+}
+
+void MainWindow::onRoomCopyToMyFileRequested(const QString &memberId)
+{
+    if (!mRoomClient || !mRoomClient->isInRoom())
+        return;
+    const RoomMemberInfo *source = roomMember(memberId);
+    if (!source || memberId == mRoomClient->selfId())
+        return;
+    Editor *mine = mMyRoomEditor.data();
+    if (!mine) {
+        statusBar()->showMessage(
+                    tr("Open or create your document first, then copy."),
+                    6000);
+        return;
+    }
+    // Web-client rule: an untouched own document (still exactly what
+    // the server holds for us) is replaced silently; anything typed
+    // since asks first. The question runs asynchronously — a heap
+    // message box shown without exec(), the pattern the web build
+    // needs (QMessageBox::question() would wedge the page there).
+    const QString current = mine->text();
+    bool untouched = current == mMyRoomBaselineCode;
+    if (!current.trimmed().isEmpty() && !untouched) {
+        auto *box = new QMessageBox{this};
+        box->setWindowTitle(tr("Copy to my file"));
+        box->setText(tr("Replace your current code with %1's code? "
+                        "Your code will be overwritten.")
+                         .arg(source->name));
+        box->setStandardButtons(QMessageBox::Yes | QMessageBox::No);
+        box->setDefaultButton(QMessageBox::No);
+        box->setAttribute(Qt::WA_DeleteOnClose);
+        connect(box, &QMessageBox::buttonClicked, this,
+                [this, box, memberId](QAbstractButton *button) {
+            if (button && box->standardButton(button) == QMessageBox::Yes)
+                doRoomCopyToMyFile(memberId);
+        });
+        box->show();
+        return;
+    }
+    doRoomCopyToMyFile(memberId);
+}
+
+void MainWindow::doRoomCopyToMyFile(const QString &memberId)
+{
+    const RoomMemberInfo *source = roomMember(memberId);
+    Editor *mine = mMyRoomEditor.data();
+    if (!source || !mine || !mRoomClient || !mRoomClient->isInRoom())
+        return;
+    RoomDoc copied = source->doc;
+    mMyRoomLanguage = copied.language;
+    // setContent under the applying-remote guard (so the watcher
+    // doesn't queue a debounced send), then push at once: the copy
+    // is an ordinary own-doc update, so it syncs and is recorded in
+    // my document's history like any of my edits.
+    applyRemoteRoomDoc(mine, copied, false);
+    mMyRoomBaselineCode = copied.code;
+    sendRoomDocNow(mRoomClient->selfId());
+    mEditorManager->activeEditor(mine, true);
+    statusBar()->showMessage(
+                tr("Copied %1's code into your file.").arg(source->name),
+                5000);
 }
 
 void MainWindow::noteCommandLineFiles(bool present)
@@ -1068,6 +1222,11 @@ bool MainWindow::canEditRoomMember(const RoomMemberInfo &member) const
     const RoomMemberInfo *self = roomMember(mRoomClient->selfId());
     if (self && self->restricted)
         return false;
+    // 2026-11-04 mirror of the server rule: the admin's code opens
+    // for a member the admin granted edit permission on it (and only
+    // that document — a grant never widens peer editing).
+    if (member.role == "admin")
+        return self && self->canEditAdminDoc;
     return mRoomSettings.membersCanEditEachOther && member.role != "admin";
 }
 
@@ -1199,6 +1358,7 @@ void MainWindow::endRoom(const QString &message)
     }
     mRoomSyncTimers.clear();
     mRoomMembers.clear();
+    mMyRoomBaselineCode.clear();
     // v1.4.0: room presence state dies with the room.
     if (mMyRoomEditor) {
         mMyRoomEditor->setRoomCursorLine(-1, QColor(), QString());
@@ -1280,6 +1440,8 @@ void MainWindow::onRoomOpenMemberRequested(const QString &memberId)
         return;
     if (Editor *existing = roomEditorForTarget(memberId)) {
         mEditorManager->activeEditor(existing, true);
+        if (const RoomMemberInfo *info = roomMember(memberId))
+            showRoomDocStateMessage(*info);
         return;
     }
     const RoomMemberInfo *member = roomMember(memberId);
@@ -1327,6 +1489,29 @@ void MainWindow::onRoomOpenMemberRequested(const QString &memberId)
     watchRoomEditor(editor);
     editor->setReadOnly(!canEditRoomMember(*member));
     mEditorManager->activeEditor(editor, true);
+    showRoomDocStateMessage(*member);
+}
+
+// The IDE has no per-document banner like the web client; the state
+// line lives in the status bar when a member's code is opened (and
+// grant changes announce themselves in onRoomAdminDocGranted). The
+// texts mirror the web client's banner.
+void MainWindow::showRoomDocStateMessage(const RoomMemberInfo &member)
+{
+    if (canEditRoomMember(member)) {
+        statusBar()->showMessage(mRoomClient->isAdmin()
+            ? tr("You are editing %1's code (admin) — changes sync live.")
+                  .arg(member.name)
+            : tr("You are editing %1's code — the admin gave you "
+                 "permission. Changes sync live.").arg(member.name),
+            8000);
+    } else {
+        statusBar()->showMessage(member.role == "admin"
+            ? tr("Viewing %1's code — view only (the admin can grant "
+                 "you edit permission).").arg(member.name)
+            : tr("Viewing %1's code — view only.").arg(member.name),
+            8000);
+    }
 }
 
 void MainWindow::onRoomKickRequested(const QString &memberId)
@@ -1353,13 +1538,19 @@ void MainWindow::onRoomJoined(const QString &selfId, const QString &role,
                               const QString &code,
                               const RoomSettings &settings,
                               const QVector<RoomMemberInfo> &members,
-                              const QVector<RoomChatMessage> &chatLog)
+                              const QVector<RoomChatMessage> &chatLog,
+                              const QVector<RoomEvent> &events)
 {
     Q_UNUSED(selfId);
     mRoomMembers = members;
     mRoomSettings = settings;
     mRoomsPanel->setInRoom(code, role, settings);
     mRoomsPanel->setMembers(members, mRoomClient->selfId());
+    // 2026-11-04: seed the activity feed from the snapshot and note
+    // my document's server-confirmed content as the copy baseline.
+    mRoomsPanel->setRoomEvents(events);
+    if (const RoomMemberInfo *self = roomMember(mRoomClient->selfId()))
+        mMyRoomBaselineCode = self->doc.code;
     if (mRoomChatWindow) {
         mRoomChatWindow->setSelfId(mRoomClient->selfId());
         mRoomChatWindow->setChatLog(chatLog);
