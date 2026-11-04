@@ -54,8 +54,30 @@ RoomMemberInfo memberFromJson(const QJsonObject &object)
     member.role = object.value("role").toString("member");
     member.away = object.value("away").toBool(false);
     member.restricted = object.value("restricted").toBool(false);
+    member.canEditAdminDoc =
+            object.value("canEditAdminDoc").toBool(false);
     member.doc = docFromJson(object.value("doc").toObject());
     return member;
+}
+
+RoomHistoryEntry historyEntryFromJson(const QJsonObject &object)
+{
+    RoomHistoryEntry entry;
+    entry.byName = object.value("byName").toString();
+    entry.ts = object.value("ts").toVariant().toLongLong();
+    return entry;
+}
+
+RoomEvent eventFromJson(const QJsonObject &object)
+{
+    RoomEvent event;
+    event.kind = object.value("kind").toString();
+    event.byId = object.value("byId").toString();
+    event.byName = object.value("byName").toString();
+    event.targetId = object.value("targetId").toString();
+    event.targetName = object.value("targetName").toString();
+    event.ts = object.value("ts").toVariant().toLongLong();
+    return event;
 }
 
 RoomSettings settingsFromJson(const QJsonObject &object)
@@ -279,6 +301,27 @@ void RoomClient::setMemberRestricted(const QString &targetId, bool restricted)
     object["type"] = "member_restrict";
     object["targetId"] = targetId;
     object["restricted"] = restricted;
+    sendJson(object);
+}
+
+void RoomClient::grantAdminDoc(const QString &targetId, bool granted)
+{
+    if (!mInRoom)
+        return;
+    QJsonObject object;
+    object["type"] = "grant_admin_doc";
+    object["targetId"] = targetId;
+    object["granted"] = granted;
+    sendJson(object);
+}
+
+void RoomClient::requestDocHistory(const QString &targetId)
+{
+    if (!mInRoom)
+        return;
+    QJsonObject object;
+    object["type"] = "get_doc_history";
+    object["targetId"] = targetId;
     sendJson(object);
 }
 
@@ -523,9 +566,14 @@ void RoomClient::onTextMessageReceived(const QString &message)
         QVector<RoomChatMessage> chatLog;
         for (const QJsonValue &value : room.value("chatLog").toArray())
             chatLog.append(chatFromJson(value.toObject()));
+        // 2026-11-04: the snapshot also carries the recent activity
+        // feed (oldest first), so a late joiner sees what happened.
+        QVector<RoomEvent> events;
+        for (const QJsonValue &value : room.value("events").toArray())
+            events.append(eventFromJson(value.toObject()));
         emit roomJoined(mSelfId, mRole, mRoomCode,
                         settingsFromJson(room.value("settings").toObject()),
-                        members, chatLog);
+                        members, chatLog, events);
         if (wasResume)
             emit resumed();
         if (restoredSeat)
@@ -577,6 +625,19 @@ void RoomClient::onTextMessageReceived(const QString &message)
     } else if (type == "member_restricted") {
         emit memberRestricted(object.value("targetId").toString(),
                               object.value("restricted").toBool(false));
+    } else if (type == "admin_doc_granted") {
+        emit adminDocGranted(object.value("targetId").toString(),
+                             object.value("granted").toBool(false));
+    } else if (type == "room_event") {
+        emit roomEventReceived(eventFromJson(object.value("event")
+                                                 .toObject()));
+    } else if (type == "doc_history") {
+        QVector<RoomHistoryEntry> entries;
+        for (const QJsonValue &value : object.value("entries").toArray())
+            entries.append(historyEntryFromJson(value.toObject()));
+        emit docHistoryReceived(object.value("targetId").toString(),
+                                entries,
+                                object.value("denied").toBool(false));
     } else if (type == "kicked") {
         clearSavedSeat();
         resetState();
