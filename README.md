@@ -6,19 +6,25 @@ A Dev-C++-style code editor for **C, C++ and Python** with live **Rooms** built 
 
 **Made by Abu Sufyan.** Built on the Red Panda C++ IDE (see [Credits](#credits)).
 
-**Current version: v1.6.0**
+**Current version: v1.6.1**
 
 ## Download
 
 | File | What it is | Size |
 |---|---|---|
-| [DevBySufyan-Setup.exe](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.6.0/DevBySufyan-Setup.exe) | Windows installer (Start Menu shortcut + uninstaller) | 167.8 MB |
-| [DevBySufyan-Portable.zip](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.6.0/DevBySufyan-Portable.zip) | Portable folder — unzip and run, no install | 275.2 MB |
+| [DevBySufyan-Setup.exe](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.6.1/DevBySufyan-Setup.exe) | Windows installer (Start Menu shortcut + uninstaller) | 176.0 MB |
+| [DevBySufyan-Portable.zip](https://github.com/abu-pro/dev-by-sufyan/releases/download/v1.6.1/DevBySufyan-Portable.zip) | Portable folder — unzip and run, no install | 283.3 MB |
 
 - **Website:** https://devbysufyan.vercel.app
 - **Android app:** the phone app is at v1.3.0 — get `DevBySufyan.apk` from the [v1.3.0 release](https://github.com/abu-pro/dev-by-sufyan/releases/tag/v1.3.0). It shares the same live rooms as the PC app.
 - The PC installer includes a MinGW GCC compiler, so **Compile & Run (F9)** works right after installing — nothing else to set up.
 - Windows may show a SmartScreen "unknown publisher" warning because the app is not code-signed yet: choose **More info → Run anyway**.
+
+## Use it in your browser - no install
+
+The full IDE also runs in the browser: **https://devbysufyan.vercel.app/app**
+
+Open the link and Dev by Sufyan starts right in the tab - the editor, themes, Rooms and online Compile & Run, with nothing to install. It is made for places where installation is not allowed, like university computer labs. Code compiles and runs through the same online engine as the web app.
 
 ## Rooms — code together live
 
@@ -51,6 +57,8 @@ A Dev-C++-style code editor for **C, C++ and Python** with live **Rooms** built 
 Dev by Sufyan is **free**, and its smart features work **offline** — no accounts, no AI services, no subscriptions.
 
 ## Version history
+
+- **v1.6.1** — fixed the missing toolbar after quitting while the full-screen Home was up; the loading screen now always paints and stays about five seconds; the Rooms join form no longer stretches the panel; Home and loading screens now use each theme's full wallpaper collection
 
 - **v1.6.0** — updater rebuilt (resumable downloads with a stall watchdog, verified size, always-visible installer path + Open Installer), three full themes (Demon Slayer / Dragon Ball / My Hero Academia) with wallpapers behind the app + Customize Home, GTA-style theme loading screen with a theme-coloured GTA-VI wordmark, full-screen Home, per-theme icon packs in the Explorer and on the Home tiles, a clean Normal theme as the new default with its own animated brand loading screen, full-quality animations, bundled Inter + JetBrains Mono fonts
 
