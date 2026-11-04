@@ -362,7 +362,19 @@ private:
     void onRoomJoined(const QString &selfId, const QString &role,
                       const QString &code, const RoomSettings &settings,
                       const QVector<RoomMemberInfo> &members,
-                      const QVector<RoomChatMessage> &chatLog);
+                      const QVector<RoomChatMessage> &chatLog,
+                      const QVector<RoomEvent> &events);
+    // 2026-11-04: grants + edit history + copy/fork + activity feed
+    void onRoomGrantEditRequested(const QString &memberId, bool granted);
+    void onRoomAdminDocGranted(const QString &targetId, bool granted);
+    void onRoomEventReceived(const RoomEvent &event);
+    void onRoomHistoryRequested(const QString &memberId);
+    void onRoomDocHistoryReceived(const QString &targetId,
+                                  const QVector<RoomHistoryEntry> &entries,
+                                  bool denied);
+    void onRoomCopyToMyFileRequested(const QString &memberId);
+    void doRoomCopyToMyFile(const QString &memberId);
+    void showRoomDocStateMessage(const RoomMemberInfo &member);
     void onRoomMemberJoined(const RoomMemberInfo &member);
     void onRoomMemberLeft(const QString &memberId, const QString &name);
     // v1.2.0: connection stability (seat held server-side, auto-resume)
@@ -1079,6 +1091,11 @@ private:
     QDockWidget *mRoomsDock = nullptr;
     QVector<RoomMemberInfo> mRoomMembers;
     RoomSettings mRoomSettings;
+    // 2026-11-04: my document as the server last confirmed it (from
+    // the latest room snapshot). Copy/fork only asks before replacing
+    // when my editor's content has moved past this baseline — the
+    // web client's "untouched starter needs no confirmation" rule.
+    QString mMyRoomBaselineCode;
     QString mMyRoomLanguage = "cpp";
     QString mRoomBackingDir;
     QPointer<Editor> mMyRoomEditor;
