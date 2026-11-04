@@ -6,14 +6,19 @@
 
 #include "dbsterminal.h"
 
+#include <QCloseEvent>
 #include <QEvent>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QShowEvent>
 #include <QTextCursor>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+
+#include <algorithm>
 
 namespace {
 // Console palette (Windows console on #0C0C0C).
@@ -21,14 +26,28 @@ const QColor kText(0xCC, 0xCC, 0xCC);
 const QColor kDim(0x8A, 0x8A, 0x8A);
 const QColor kError(0xFF, 0x9E, 0x99);   // soft red for stderr
 const QColor kCommand(0xFF, 0xFF, 0xFF);
+
+// Part 9 Addendum: the panel deletes itself on close
+// (WA_DeleteOnClose), so its last geometry is kept here and the
+// next instance reopens where the user left it.
+QPoint sSavedPos;
+QSize sSavedSize;
+bool sHasSavedGeometry = false;
 } // namespace
 
 DbsTerminalWindow::DbsTerminalWindow(QWidget *parent)
-    : QWidget(parent, Qt::Window)
+    // Part 9 Addendum: NOT Qt::Window — on Qt for WebAssembly a
+    // plain window top-level is stretched over the whole canvas.
+    // Qt::Dialog gets a true floating window (platform title bar
+    // with close button, draggable, honoured geometry), and
+    // Qt::WindowStaysOnTopHint keeps it in front, chat-panel
+    // style, when the user clicks back into the editor. It is
+    // still shown with show() only — never modal.
+    : QWidget(parent, Qt::Dialog | Qt::WindowStaysOnTopHint)
 {
     setAttribute(Qt::WA_DeleteOnClose, true);
     setWindowTitle(tr("Terminal"));
-    resize(740, 480);
+    resize(760, 500);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(6, 6, 6, 6);
@@ -99,11 +118,67 @@ void DbsTerminalWindow::beginSession(const QString &displayName)
     mPending = true;
     mFinished = false;
     setWindowTitle(tr("%1 — Terminal").arg(displayName));
-    if (!mPositioned && parentWidget()) {
+    if (!mPositioned) {
         mPositioned = true;
-        const QRect host = parentWidget()->geometry();
-        move(host.center() - rect().center());
+        if (sHasSavedGeometry) {
+            // Reopen where the user left the previous panel.
+            resize(sSavedSize);
+            move(sSavedPos);
+        }
+        // Authoritative placement once the platform frame exists
+        // (the caller shows the window right after this returns):
+        // frameGeometry() is only meaningful then, and the frame —
+        // title bar included — must end up fully inside the IDE.
+        QTimer::singleShot(0, this, [this]() {
+            if (sHasSavedGeometry) {
+                move(sSavedPos);
+            } else if (parentWidget()) {
+                // First open: a generous panel anchored bottom-right
+                // of the IDE, editor visible around it.
+                const int margin = 24;
+                const QSize fs = frameGeometry().size();
+                move(std::max(0, parentWidget()->width() - fs.width() - margin),
+                     std::max(0, parentWidget()->height() - fs.height() - margin));
+            }
+            clampInsideHost();
+            // The single-thread build's compositor settles the
+            // frame later than the multi-thread one's; re-check
+            // once it has had time to (a no-op when already inside).
+            QTimer::singleShot(250, this, [this]() { clampInsideHost(); });
+        });
     }
+}
+
+void DbsTerminalWindow::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    QTimer::singleShot(0, this, [this]() { clampInsideHost(); });
+}
+
+void DbsTerminalWindow::clampInsideHost()
+{
+    QWidget *host = parentWidget();
+    if (!host)
+        return;
+    const QRect fr = frameGeometry();
+    int x = fr.x();
+    int y = fr.y();
+    if (fr.width() < host->width())
+        x = std::max(0, std::min(x, host->width() - fr.width()));
+    if (fr.height() < host->height())
+        y = std::max(0, std::min(y, host->height() - fr.height()));
+    if (x != fr.x() || y != fr.y())
+        move(x, y);
+}
+
+void DbsTerminalWindow::closeEvent(QCloseEvent *event)
+{
+    // Remember where the panel was (and how big), so the next
+    // Run reopens it there instead of jumping back to default.
+    sSavedPos = pos();
+    sSavedSize = size();
+    sHasSavedGeometry = true;
+    QWidget::closeEvent(event);
 }
 
 void DbsTerminalWindow::beginRerun(const QString &displayName)
