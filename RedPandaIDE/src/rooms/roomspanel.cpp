@@ -19,6 +19,8 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
+#include <QDateTime>
+#include <QDialog>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -193,7 +195,41 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
     mKickButton = new QPushButton{tr("Kick"), membersTab};
     memberActions->addWidget(mKickButton);
     membersLayout->addLayout(memberActions);
+    // 2026-11-04: the admin can let one member edit the ADMIN's own
+    // code (and take it back). Mirrors the web client's per-member
+    // "Let edit my code" / "Revoke my-code edit" button.
+    mGrantButton = new QPushButton{tr("Let edit my code"), membersTab};
+    mGrantButton->setToolTip(tr("Give the selected member permission "
+                                "to edit YOUR (the admin's) code"));
+    membersLayout->addWidget(mGrantButton);
+    // 2026-11-04: per-document edit history + copy/fork of the
+    // selected member's code into my own document.
+    auto *docActions = new QHBoxLayout;
+    mHistoryButton = new QPushButton{tr("Edit history…"), membersTab};
+    mHistoryButton->setToolTip(tr("Show who edited this document "
+                                  "(the owner and the admin only)"));
+    docActions->addWidget(mHistoryButton);
+    mCopyToMyFileButton = new QPushButton{tr("Copy to my file"),
+                                          membersTab};
+    mCopyToMyFileButton->setToolTip(
+        tr("Copy the selected member's code into your own document "
+           "(their code stays untouched)"));
+    docActions->addWidget(mCopyToMyFileButton);
+    membersLayout->addLayout(docActions);
     mTabs->addTab(membersTab, tr("Members"));
+
+    // Activity tab (2026-11-04): the room-activity feed — who edited
+    // whose file and who got/took admin-code permission, newest first.
+    auto *activityTab = new QWidget{mTabs};
+    auto *activityLayout = new QVBoxLayout{activityTab};
+    activityLayout->setSpacing(4);
+    mEventsList = new QListWidget{activityTab};
+    mEventsList->setStyleSheet(
+        "QListWidget::item { padding: 1px 4px; }");
+    mEventsList->setWordWrap(true);
+    mEventsList->setSelectionMode(QAbstractItemView::NoSelection);
+    activityLayout->addWidget(mEventsList);
+    mActivityTabIndex = mTabs->addTab(activityTab, tr("Activity"));
 
     // Settings tab
     auto *settingsTab = new QWidget{mTabs};
@@ -250,6 +286,14 @@ RoomsPanel::RoomsPanel(QWidget *parent) :
             this, &RoomsPanel::saveCodeRequested);
     connect(mRestrictButton, &QPushButton::clicked,
             this, &RoomsPanel::onRestrictClicked);
+    connect(mGrantButton, &QPushButton::clicked,
+            this, &RoomsPanel::onGrantClicked);
+    connect(mHistoryButton, &QPushButton::clicked,
+            this, &RoomsPanel::onHistoryClicked);
+    connect(mCopyToMyFileButton, &QPushButton::clicked,
+            this, &RoomsPanel::onCopyToMyFileClicked);
+    connect(mTabs, &QTabWidget::currentChanged,
+            this, &RoomsPanel::onTabChanged);
     connect(mKickButton, &QPushButton::clicked, this, [this]() {
         QString memberId = selectedMemberId();
         if (!memberId.isEmpty() && memberId != mSelfId)
@@ -293,6 +337,15 @@ void RoomsPanel::setInRoom(const QString &code, const QString &role,
     setUnreadCount(0);
     setReconnecting(false);
     setSettings(settings);
+    // 2026-11-04: a fresh room starts with an empty activity feed;
+    // the snapshot's recent events follow via setRoomEvents().
+    mEvents.clear();
+    mActivityUnread = 0;
+    refreshEventsList();
+    updateActivityTabLabel();
+    if (mHistoryDialog)
+        mHistoryDialog->hide();
+    mHistoryTargetId.clear();
     updateMemberActionButtons();
 }
 
@@ -304,6 +357,15 @@ void RoomsPanel::setNotInRoom(const QString &message)
     mRoomCode.clear();
     mMembers.clear();
     mMembersList->clear();
+    // 2026-11-04: the activity feed and any open history die with
+    // the room session, exactly like the chat log.
+    mEvents.clear();
+    mActivityUnread = 0;
+    refreshEventsList();
+    updateActivityTabLabel();
+    if (mHistoryDialog)
+        mHistoryDialog->hide();
+    mHistoryTargetId.clear();
     mProjectLabel->setVisible(false);
     mConnLabel->setVisible(false);
     mPingLabel->setVisible(false);
@@ -396,6 +458,8 @@ void RoomsPanel::setMembers(const QVector<RoomMemberInfo> &members,
             badges << tr("Away");
         if (member.restricted)
             badges << tr("Restricted");
+        if (member.canEditAdminDoc)
+            badges << tr("CAN EDIT ADMIN");
         badges << languageDisplayName(member.doc.language);
         QString text = member.name + " · " + badges.join(" · ");
         auto *item = new QListWidgetItem{text, mMembersList};
@@ -412,6 +476,9 @@ void RoomsPanel::setMembers(const QVector<RoomMemberInfo> &members,
         if (member.restricted)
             tip += "\n" + tr("Restricted by the admin: cannot edit other "
                              "members' code.");
+        if (member.canEditAdminDoc)
+            tip += "\n" + tr("The admin gave this member permission to "
+                             "edit the admin's code.");
         item->setToolTip(tip);
         if (member.id == previousSelection)
             mMembersList->setCurrentItem(item);
@@ -454,6 +521,28 @@ void RoomsPanel::updateMemberActionButtons()
         mRestrictButton->setText(tr("Allow editing"));
     else
         mRestrictButton->setText(tr("Restrict editing"));
+    // 2026-11-04: grant/revoke of admin-code edit permission — the
+    // same admin-only targets as restrict/kick; the label mirrors
+    // the member's current grant state (web client wording).
+    mGrantButton->setVisible(mIsAdmin);
+    mGrantButton->setEnabled(canActOn);
+    if (selected && selected->canEditAdminDoc) {
+        mGrantButton->setText(tr("Revoke my-code edit"));
+        mGrantButton->setToolTip(tr("Take back this member's "
+                                    "permission to edit YOUR (the "
+                                    "admin's) code"));
+    } else {
+        mGrantButton->setText(tr("Let edit my code"));
+        mGrantButton->setToolTip(tr("Give this member permission to "
+                                    "edit YOUR (the admin's) code"));
+    }
+    // Edit history: readable for my own document, or for any
+    // document when I am the admin (the server checks again).
+    mHistoryButton->setEnabled(mInRoom && selected
+                               && (selected->id == mSelfId || mIsAdmin));
+    // Copy/fork only makes sense for someone else's document.
+    mCopyToMyFileButton->setEnabled(mInRoom && selected
+                                    && selected->id != mSelfId);
 }
 
 void RoomsPanel::onMemberSelectionChanged()
@@ -467,6 +556,192 @@ void RoomsPanel::onRestrictClicked()
     if (!selected)
         return;
     emit restrictRequested(selected->id, !selected->restricted);
+}
+
+void RoomsPanel::onGrantClicked()
+{
+    const RoomMemberInfo *selected = memberInfo(selectedMemberId());
+    if (!selected)
+        return;
+    emit grantEditRequested(selected->id, !selected->canEditAdminDoc);
+}
+
+void RoomsPanel::onHistoryClicked()
+{
+    const RoomMemberInfo *selected = memberInfo(selectedMemberId());
+    if (!selected)
+        return;
+    openHistoryDialog(selected->id, selected->name);
+    emit historyRequested(selected->id);
+}
+
+void RoomsPanel::onCopyToMyFileClicked()
+{
+    const RoomMemberInfo *selected = memberInfo(selectedMemberId());
+    if (!selected || selected->id == mSelfId)
+        return;
+    emit copyToMyFileRequested(selected->id);
+}
+
+void RoomsPanel::onTabChanged(int index)
+{
+    // Reading the Activity tab clears its unread count (the web
+    // client's badge behaviour, translated to the tab label).
+    if (index == mActivityTabIndex && mActivityUnread > 0) {
+        mActivityUnread = 0;
+        updateActivityTabLabel();
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 2026-11-04: room activity feed + edit history dialog
+// ---------------------------------------------------------------------------
+
+QString RoomsPanel::timeDisplayText(qint64 ts)
+{
+    if (ts <= 0)
+        return QString();
+    // Same shape as the web client: "6:50 PM".
+    return QDateTime::fromMSecsSinceEpoch(ts).time()
+            .toString(QStringLiteral("h:mm AP"));
+}
+
+QString RoomsPanel::eventDisplayText(const RoomEvent &event)
+{
+    // The web client's eventText(), verbatim.
+    if (event.kind == "edit")
+        return tr("%1 changed %2's file")
+                .arg(event.byName, event.targetName);
+    if (event.kind == "grant")
+        return tr("%1 gave %2 permission to edit the admin's file")
+                .arg(event.byName, event.targetName);
+    if (event.kind == "revoke")
+        return tr("%1 took back %2's permission to edit the admin's "
+                  "file").arg(event.byName, event.targetName);
+    return QString();
+}
+
+void RoomsPanel::refreshEventsList()
+{
+    if (!mEventsList)
+        return;
+    mEventsList->clear();
+    if (mEvents.isEmpty()) {
+        auto *item = new QListWidgetItem{
+            tr("No activity yet — edits to other members' files and "
+               "permission changes appear here."), mEventsList};
+        item->setFlags(Qt::NoItemFlags);
+        item->setForeground(QBrush{QColor{"#888888"}});
+        return;
+    }
+    for (const RoomEvent &event : mEvents) {
+        QString text = eventDisplayText(event);
+        if (text.isEmpty())
+            continue;
+        QString when = timeDisplayText(event.ts);
+        if (!when.isEmpty())
+            text += QStringLiteral(" · ") + when;
+        new QListWidgetItem{text, mEventsList};
+    }
+}
+
+void RoomsPanel::updateActivityTabLabel()
+{
+    if (mActivityTabIndex < 0)
+        return;
+    mTabs->setTabText(mActivityTabIndex, mActivityUnread > 0
+                          ? tr("Activity (%1)").arg(mActivityUnread)
+                          : tr("Activity"));
+}
+
+void RoomsPanel::setRoomEvents(const QVector<RoomEvent> &events)
+{
+    // The snapshot sends oldest first; the feed shows newest first.
+    mEvents.clear();
+    for (int i = events.size() - 1; i >= 0; --i)
+        mEvents.append(events.at(i));
+    if (mEvents.size() > 50)
+        mEvents.resize(50);
+    refreshEventsList();
+}
+
+void RoomsPanel::addRoomEvent(const RoomEvent &event)
+{
+    mEvents.prepend(event);
+    if (mEvents.size() > 50)
+        mEvents.resize(50);
+    refreshEventsList();
+    if (mTabs->currentIndex() != mActivityTabIndex) {
+        ++mActivityUnread;
+        updateActivityTabLabel();
+    }
+}
+
+void RoomsPanel::openHistoryDialog(const QString &memberId,
+                                   const QString &memberName)
+{
+    if (!mHistoryDialog) {
+        mHistoryDialog = new QDialog{this};
+        mHistoryDialog->setWindowTitle(tr("Edit history"));
+        mHistoryDialog->resize(380, 320);
+        auto *dialogLayout = new QVBoxLayout{mHistoryDialog};
+        mHistoryTitle = new QLabel{mHistoryDialog};
+        mHistoryTitle->setStyleSheet("font-weight:bold;");
+        dialogLayout->addWidget(mHistoryTitle);
+        mHistoryList = new QListWidget{mHistoryDialog};
+        mHistoryList->setStyleSheet(
+            "QListWidget::item { padding: 1px 4px; }");
+        mHistoryList->setSelectionMode(QAbstractItemView::NoSelection);
+        dialogLayout->addWidget(mHistoryList);
+        auto *closeButton = new QPushButton{tr("Close"), mHistoryDialog};
+        dialogLayout->addWidget(closeButton);
+        connect(closeButton, &QPushButton::clicked,
+                mHistoryDialog, &QDialog::hide);
+    }
+    mHistoryTargetId = memberId;
+    mHistoryDialog->setWindowTitle(tr("Edit history"));
+    mHistoryTitle->setText(tr("Edit history — %1").arg(memberName));
+    mHistoryList->clear();
+    auto *loading = new QListWidgetItem{tr("Loading…"), mHistoryList};
+    loading->setFlags(Qt::NoItemFlags);
+    loading->setForeground(QBrush{QColor{"#888888"}});
+    mHistoryDialog->show();
+    mHistoryDialog->raise();
+    mHistoryDialog->activateWindow();
+}
+
+void RoomsPanel::setDocHistory(const QString &targetId,
+                               const QVector<RoomHistoryEntry> &entries,
+                               bool denied)
+{
+    // Answers and pushes for other documents don't touch an open
+    // dialog that is showing someone else's history.
+    if (!mHistoryDialog || !mHistoryDialog->isVisible()
+            || targetId != mHistoryTargetId)
+        return;
+    mHistoryList->clear();
+    if (denied) {
+        auto *item = new QListWidgetItem{
+            tr("Only the document owner and the admin can see this "
+               "history."), mHistoryList};
+        item->setFlags(Qt::NoItemFlags);
+        return;
+    }
+    if (entries.isEmpty()) {
+        auto *item = new QListWidgetItem{
+            tr("No edits recorded yet in this room session."),
+            mHistoryList};
+        item->setFlags(Qt::NoItemFlags);
+        item->setForeground(QBrush{QColor{"#888888"}});
+        return;
+    }
+    for (const RoomHistoryEntry &entry : entries) {
+        QString text = tr("%1 edited").arg(entry.byName);
+        QString when = timeDisplayText(entry.ts);
+        if (!when.isEmpty())
+            text += QStringLiteral(" · ") + when;
+        new QListWidgetItem{text, mHistoryList};
+    }
 }
 
 void RoomsPanel::setSettings(const RoomSettings &settings)
@@ -548,11 +823,16 @@ void RoomsPanel::onMemberContextMenu(const QPoint &pos)
         "QMenu::separator { height: 3px; margin: 1px 8px; }");
     QAction *openAction = menu.addAction(tr("Open code"));
     QAction *restrictAction = nullptr;
+    QAction *grantAction = nullptr;
     QAction *kickAction = nullptr;
     if (mInRoom && mIsAdmin && info && info->role != "admin") {
         restrictAction = menu.addAction(info->restricted
             ? tr("Allow editing")
             : tr("Restrict editing"));
+        // 2026-11-04: grant/revoke edit permission on MY code.
+        grantAction = menu.addAction(info->canEditAdminDoc
+            ? tr("Revoke my-code edit")
+            : tr("Let edit my code"));
         kickAction = menu.addAction(tr("Kick"));
     }
 #ifdef __EMSCRIPTEN__
@@ -563,19 +843,24 @@ void RoomsPanel::onMemberContextMenu(const QPoint &pos)
         heapMenu->setStyleSheet(menu.styleSheet());
         QAction *hOpen = heapMenu->addAction(openAction->text());
         QAction *hRestrict = nullptr;
+        QAction *hGrant = nullptr;
         QAction *hKick = nullptr;
         if (restrictAction) {
             hRestrict = heapMenu->addAction(restrictAction->text());
+            hGrant = heapMenu->addAction(grantAction->text());
             hKick = heapMenu->addAction(kickAction->text());
         }
         const bool wasRestricted = (info && info->restricted);
+        const bool wasGranted = (info && info->canEditAdminDoc);
         connect(heapMenu, &QMenu::triggered, this,
-                [this, heapMenu, hOpen, hRestrict, hKick,
-                 memberId, wasRestricted](QAction *chosen) {
+                [this, heapMenu, hOpen, hRestrict, hGrant, hKick,
+                 memberId, wasRestricted, wasGranted](QAction *chosen) {
             if (chosen == hOpen)
                 emit openMemberRequested(memberId);
             else if (hRestrict && chosen == hRestrict)
                 emit restrictRequested(memberId, !wasRestricted);
+            else if (hGrant && chosen == hGrant)
+                emit grantEditRequested(memberId, !wasGranted);
             else if (hKick && chosen == hKick)
                 emit kickRequested(memberId);
             heapMenu->deleteLater();
@@ -591,6 +876,8 @@ void RoomsPanel::onMemberContextMenu(const QPoint &pos)
         emit openMemberRequested(memberId);
     else if (restrictAction && chosen == restrictAction)
         emit restrictRequested(memberId, !(info && info->restricted));
+    else if (grantAction && chosen == grantAction)
+        emit grantEditRequested(memberId, !(info && info->canEditAdminDoc));
     else if (kickAction && chosen == kickAction)
         emit kickRequested(memberId);
 }
